@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rotation Span Task</title>
+
+  <script src="https://unpkg.com/jspsych@7.3.4"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
+
+  <style>
+    body { background: #fff; }
+    .jspsych-content { max-width: 820px; width: 100%; }
+
+    /* Instructions */
+    .instr { max-width: 680px; margin: 0 auto; line-height: 1.8; font-size: 1.05em; color: #222; }
+    .instr h2 { color: #1a237e; margin-bottom: 14px; }
+    .instr p  { margin: 10px 0; }
+    .key { display: inline-block; background: #eee; border: 1px solid #aaa;
+           border-radius: 4px; padding: 1px 8px; font-family: monospace; font-weight: bold; }
+
+    /* Arrow rotation trial */
+    .rot-trial   { text-align: center; }
+    .arrow-wrap  { margin: 20px auto; display: flex; align-items: center;
+                   justify-content: center; gap: 40px; }
+    .arrow-label { font-size: 1em; color: #666; text-align: center; margin-top: 6px; }
+    .rotation-instruction { font-size: 1.4em; font-weight: bold; color: #1a237e;
+                            text-align: center; margin: 14px 0; }
+    .rot-keys   { text-align: center; font-size: 1em; color: #666; margin-bottom: 10px; }
+
+    /* Timer */
+    .timer-wrap { width: 380px; height: 16px; background: #ddd;
+                  border-radius: 8px; margin: 12px auto; overflow: hidden; }
+    .timer-fill { height: 100%; background: #43a047; border-radius: 8px; }
+
+    /* Memory letter */
+    .mem-letter-box { font-size: 5.5em; font-weight: 900; text-align: center;
+                      color: #111; margin: 40px 0; font-family: Arial, sans-serif;
+                      user-select: none; }
+
+    /* Recall interface */
+    .recall-wrap   { text-align: center; padding: 10px; }
+    .recall-instr  { font-size: 1.1em; color: #333; margin-bottom: 14px; }
+    .lr-table      { display: inline-block; text-align: left; }
+    .lr-row        { display: flex; align-items: center; gap: 14px; margin: 8px 0; }
+    .lr-pos-label  { font-size: 0.95em; color: #666; width: 80px; text-align: right; }
+    .lr-btn        { width: 100px; height: 90px; border-radius: 10px; border: 2px solid #555;
+                     background: #f4f4f4; cursor: pointer; display: flex; flex-direction: column;
+                     align-items: center; justify-content: center; transition: background 0.1s; }
+    .lr-btn:hover:not(.chosen) { background: #e0e0e0; }
+    .lr-btn.chosen  { background: #1565c0; border-color: #0d47a1; color: #fff; }
+    .lr-letter      { font-size: 2em; font-weight: 900; font-family: Arial, sans-serif;
+                      line-height: 1; user-select: none; }
+    .lr-sublabel    { font-size: 0.65em; margin-top: 4px; }
+    .recall-actions { margin-top: 18px; }
+    .btn-submit { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #2e7d32; background: #43a047; color: #fff; cursor: pointer; }
+
+    /* Feedback */
+    .fb-correct { color: #2e7d32; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-wrong   { color: #b71c1c; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-slow    { color: #e65100; font-size: 1.7em; font-weight: bold; text-align: center; }
+
+    /* Progress */
+    .progress-note { font-size: 0.88em; color: #888; text-align: center; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+<script>
+// ================================================================
+//  ROTATION SPAN TASK
+//  Processing: mentally rotate an arrow; judge LEFT or RIGHT
+//  Memory:     letter shown normal or mirror-reversed; recall orientation
+//  Standard:   set sizes 2-5, 3 trials each (36 items max)
+// ================================================================
+
+const PIPE_ID      = '9oKz50mNsN8g';
+const LETTER_MS    = 1000;
+const FIXATION_MS  = 250;
+const FEEDBACK_MS  = 600;
+
+// Memory letters with obvious mirror forms
+const MEM_LETTERS  = ['F', 'R', 'J'];
+
+// Standard set sizes 2–5, 3 trials each
+const MAIN_SIZES   = shuffle([2,2,2, 3,3,3, 4,4,4, 5,5,5]);
+
+// --- STATE ---
+let practiceRTs    = [];
+let rotTimeLimit   = 8000;
+let practiceOKCt   = 0;
+let lastRotOK      = false;
+let lastRotSlow    = false;
+let finalPartial   = 0;
+let finalAbsolute  = 0;
+let finalRotAcc    = 0;
+
+
+// ================================================================
+//  UTILITY
+// ================================================================
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * Generate a rotation problem.
+ * Angles in CSS degrees: 0=right, 90=down, 180=left, 270=up (clockwise).
+ * We avoid final angles of 90 and 270 (straight up/down — ambiguous for L/R).
+ */
+function makeRotProblem() {
+  const allAngles  = [0, 45, 90, 135, 180, 225, 270, 315];
+  const rotAmounts = [45, 90, 135, 180, 225, 270, 315]; // clockwise degrees
+  let startAngle, rotation, finalAngle, tries = 0;
+  do {
+    startAngle = allAngles[Math.floor(Math.random() * 8)];
+    rotation   = rotAmounts[Math.floor(Math.random() * 7)];
+    finalAngle = (startAngle + rotation) % 360;
+    tries++;
+  } while ((finalAngle === 90 || finalAngle === 270) && tries < 100);
+
+  // RIGHT = generally pointing right (315-359 or 0-89)
+  // LEFT  = generally pointing left (91-269)
+  const isRight = finalAngle < 90 || finalAngle > 270;
+
+  // Human-readable rotation label
+  const rotLabel = rotation <= 180
+    ? `${rotation}° clockwise`
+    : `${360 - rotation}° counter-clockwise`;
+
+  return { startAngle, rotation, finalAngle, isRight, rotLabel };
+}
+
+/** SVG arrow pointing right, rotated to angleDeg (CSS clockwise) */
+function arrowSVG(angleDeg, size = 110) {
+  return `
+    <svg width="${size}" height="${size}" viewBox="-55 -55 110 110"
+         style="transform:rotate(${angleDeg}deg);display:block;overflow:visible;">
+      <line x1="-38" y1="0" x2="22" y2="0"
+            stroke="#222" stroke-width="9" stroke-linecap="round"/>
+      <polygon points="22,-13 50,0 22,13" fill="#222"/>
+    </svg>`;
+}
+
+/** Build rotation trial HTML */
+function rotTrialHTML(prob, showTimer) {
+  const timer = showTimer
+    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    : '';
+  return `
+    <div class="rot-trial">
+      <div class="arrow-wrap">
+        <div>
+          ${arrowSVG(prob.startAngle)}
+          <p class="arrow-label">Starting arrow</p>
+        </div>
+      </div>
+      <p class="rotation-instruction">Rotate <strong>${prob.rotLabel}</strong></p>
+      <p class="rot-keys">
+        <span class="key">F</span> ← LEFT &nbsp;&nbsp;&nbsp;
+        <span class="key">J</span> RIGHT →
+      </p>
+      ${timer}
+    </div>`;
+}
+
+/** Start timer bar animation */
+function startTimerBar() {
+  const bar = document.getElementById('t-bar');
+  if (!bar) return;
+  bar.style.transition = `width ${rotTimeLimit}ms linear`;
+  setTimeout(() => { if (bar) bar.style.width = '0%'; }, 30);
+}
+
+/** Feedback HTML */
+function rotFeedbackHTML() {
+  if (lastRotSlow) return `<p class="fb-slow">Too slow!</p>`;
+  return lastRotOK
+    ? `<p class="fb-correct">✓ Correct</p>`
+    : `<p class="fb-wrong">✗ Incorrect</p>`;
+}
+
+/** Pick n memory items (letter + mirrored flag) */
+function pickMemItems(n) {
+  return Array.from({ length: n }, () => ({
+    letter:   MEM_LETTERS[Math.floor(Math.random() * MEM_LETTERS.length)],
+    mirrored: Math.random() > 0.5
+  }));
+}
+
+/** HTML to display a memory letter (normal or mirrored) */
+function memLetterHTML(letter, mirrored) {
+  const xform = mirrored ? 'scaleX(-1)' : 'none';
+  return `<div class="mem-letter-box">
+    <span style="display:inline-block;transform:${xform}">${letter}</span>
+  </div>`;
+}
+
+/** Build the recall interface */
+function recallHTML(items) {
+  let rows = items.map((item, i) => `
+    <div class="lr-row" id="lr-row-${i}">
+      <span class="lr-pos-label">Position ${i + 1}</span>
+      <button class="lr-btn" id="lr-n-${i}" data-pos="${i}" data-choice="normal">
+        <span class="lr-letter">${item.letter}</span>
+        <span class="lr-sublabel">Normal</span>
+      </button>
+      <button class="lr-btn" id="lr-m-${i}" data-pos="${i}" data-choice="mirror">
+        <span class="lr-letter" style="display:inline-block;transform:scaleX(-1)">${item.letter}</span>
+        <span class="lr-sublabel">Mirror</span>
+      </button>
+    </div>`).join('');
+
+  return `
+    <div class="recall-wrap">
+      <p class="recall-instr">
+        For each position, select whether the letter appeared
+        <strong>Normal</strong> or <strong>Mirror-reversed</strong>:
+      </p>
+      <div class="lr-table">${rows}</div>
+      <div class="recall-actions">
+        <button class="btn-submit" id="rc-submit">Submit</button>
+      </div>
+    </div>`;
+}
+
+/** Wire up recall handlers */
+function setupLetterRecall(items) {
+  const choices = new Array(items.length).fill(null);
+
+  // Row buttons: only one of normal/mirror selectable per row
+  for (let i = 0; i < items.length; i++) {
+    ['n', 'm'].forEach(type => {
+      const btn = document.getElementById(`lr-${type}-${i}`);
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        // Deselect sibling
+        const other = document.getElementById(`lr-${type === 'n' ? 'm' : 'n'}-${i}`);
+        if (other) other.classList.remove('chosen');
+        this.classList.add('chosen');
+        choices[i] = this.dataset.choice; // 'normal' or 'mirror'
+      });
+    });
+  }
+
+  document.getElementById('rc-submit').addEventListener('click', () => {
+    let partial = 0;
+    for (let i = 0; i < items.length; i++) {
+      const correct = items[i].mirrored ? 'mirror' : 'normal';
+      if (choices[i] === correct) partial++;
+    }
+    const absolute = partial === items.length ? 1 : 0;
+
+    jsPsych.finishTrial({
+      response:         JSON.stringify(choices),
+      target:           JSON.stringify(items.map(it => it.mirrored ? 'mirror' : 'normal')),
+      partial_correct:  partial,
+      absolute_correct: absolute,
+      set_size:         items.length,
+      trial_type:       'recall'
+    });
+  });
+}
+
+
+// ================================================================
+//  INIT JSPSYCH
+// ================================================================
+const jsPsych = initJsPsych({
+  on_finish: function () {
+    document.body.innerHTML = `
+      <div style="font-family:Arial;text-align:center;padding:80px;">
+        <h2>Task complete</h2>
+        <p>Your data has been saved to OSF. Thank you for participating.</p>
+        <p>You may close this window.</p>
+      </div>`;
+  }
+});
+
+const timeline = [];
+const filename = jsPsych.randomization.randomID(10) + '.csv';
+
+
+// ================================================================
+//  PARTICIPANT ID
+// ================================================================
+timeline.push({
+  type: jsPsychSurveyText,
+  questions: [{
+    prompt:   'Please enter your Participant ID:',
+    name:     'pid',
+    required: true
+  }],
+  on_finish: d => jsPsych.data.addProperties({ participant_id: d.response.pid })
+});
+
+
+// ================================================================
+//  PART 1 — ROTATION PRACTICE ALONE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 1: Rotation Practice</h2>
+    <p>You will see an arrow pointing in some direction, and a rotation instruction
+       like <strong>"Rotate 90° clockwise"</strong>.</p>
+    <p>Mentally rotate the arrow by that amount and decide whether it would end up
+       pointing to the <strong>LEFT</strong> or to the <strong>RIGHT</strong>.</p>
+    <p><span class="key">F</span> = LEFT &nbsp;&nbsp;
+       <span class="key">J</span> = RIGHT</p>
+    <p>Try to be as <strong>fast and accurate</strong> as possible.
+       You will complete 12 practice problems.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let i = 0; i < 12; i++) {
+  const prob = makeRotProblem();
+  timeline.push({
+    type:     jsPsychHtmlKeyboardResponse,
+    stimulus: rotTrialHTML(prob, false),
+    choices:  ['f', 'j'],
+    data:     { trial_type: 'rot_practice', correct_key: prob.isRight ? 'j' : 'f', is_right: prob.isRight },
+    on_finish: function (d) {
+      d.rot_correct = d.response === d.correct_key;
+      lastRotOK   = d.rot_correct;
+      lastRotSlow = false;
+      if (d.rot_correct) practiceOKCt++;
+      practiceRTs.push(d.rt);
+    }
+  });
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       () => rotFeedbackHTML(),
+    choices:        'NO_KEYS',
+    trial_duration: FEEDBACK_MS
+  });
+}
+
+// Compute time limit
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const n    = practiceRTs.length;
+    const mean = practiceRTs.reduce((a, b) => a + b, 0) / n;
+    const sd   = Math.sqrt(practiceRTs.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n);
+    rotTimeLimit = Math.round(Math.max(2500, Math.min(12000, mean + 2.5 * sd)));
+  }
+});
+
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    const acc = Math.round((practiceOKCt / 12) * 100);
+    const msg = acc < 85
+      ? `<p style="color:#b71c1c;font-weight:bold;">Your accuracy was ${acc}%. Please try to be more careful — aim for at least 85%.</p>`
+      : `<p style="color:#2e7d32;font-weight:bold;">Your accuracy was ${acc}% — great job!</p>`;
+    return `<div class="instr">
+      <h2>Rotation Practice Complete</h2>${msg}
+      <p>In the main task, each rotation problem will have a time limit based on
+         your practice speed. A timer bar will show how much time you have.</p>
+      <br><p style="color:#888">Press any key to continue.</p>
+    </div>`;
+  },
+  choices: 'ALL_KEYS'
+});
+
+
+// ================================================================
+//  PART 2 — LETTER MEMORY PRACTICE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 2: Letter Memory Practice</h2>
+    <p>Next, you will practice remembering letter orientations.</p>
+    <p>A letter will appear on screen in one of two forms:</p>
+    <p style="text-align:center;">
+      <span style="font-size:2em;font-weight:900;font-family:Arial;">F</span>
+      &nbsp;&nbsp; <em>Normal</em>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+      <span style="font-size:2em;font-weight:900;font-family:Arial;display:inline-block;transform:scaleX(-1)">F</span>
+      &nbsp;&nbsp; <em>Mirror-reversed</em>
+    </p>
+    <p>After all the letters in a set, you will be asked whether each one
+       was <strong>Normal</strong> or <strong>Mirror-reversed</strong>.</p>
+    <p>You will practice with 3 sets of 2 letters each.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let s = 0; s < 3; s++) {
+  const items  = pickMemItems(2);
+  const tItems = items.map(it => ({ ...it }));
+
+  items.forEach(item => {
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       memLetterHTML(item.letter, item.mirrored),
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data:           { trial_type: 'letter_practice' }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  });
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(tItems),
+    choices: 'NO_KEYS',
+    on_load: () => setupLetterRecall(tItems),
+    data:    { trial_type: 'recall_practice', set_size: 2 }
+  });
+
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+      const last = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      if (!last) return '';
+      return last.partial_correct === 2
+        ? `<p class="fb-correct">Both correct!</p>`
+        : `<p style="font-size:1.2em;text-align:center;color:#555">
+             You got ${last.partial_correct}/2 correct.</p>`;
+    },
+    choices:        'NO_KEYS',
+    trial_duration: 2000
+  });
+}
+
+
+// ================================================================
+//  PART 3 — COMBINED PRACTICE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 3: Combined Practice</h2>
+    <p>Now you will do both tasks together: judge a rotation problem,
+       then a letter will appear — remember whether it is <strong>Normal</strong>
+       or <strong>Mirror-reversed</strong>.</p>
+    <p>After all items in a set, indicate the orientation of each letter in order.</p>
+    <p>The rotation problems have a <strong>time limit</strong>. Answer quickly!
+       Maintain at least <strong>85% accuracy</strong> on the rotation judgments.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+[2, 2, 3].forEach(sz => {
+  const items  = pickMemItems(sz);
+  const tItems = items.map(it => ({ ...it }));
+
+  for (let i = 0; i < sz; i++) {
+    const prob = makeRotProblem();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: rotTrialHTML(prob, true),
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = rotTimeLimit; },
+      on_load:  startTimerBar,
+      data:     { trial_type: 'rot_combined_practice', correct_key: prob.isRight ? 'j' : 'f' },
+      on_finish: function (d) {
+        lastRotSlow   = d.response === null;
+        lastRotOK     = !lastRotSlow && d.response === d.correct_key;
+        d.rot_correct = lastRotOK;
+        d.timed_out   = lastRotSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => rotFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       memLetterHTML(items[i].letter, items[i].mirrored),
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data:           { trial_type: 'letter_combined_practice' }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(tItems),
+    choices: 'NO_KEYS',
+    on_load: () => setupLetterRecall(tItems),
+    data:    { trial_type: 'recall_combined_practice' }
+  });
+});
+
+
+// ================================================================
+//  MAIN TASK
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Main Task — Begin</h2>
+    <p>You are now ready for the main task.</p>
+    <p>You will complete <strong>12 sets</strong>, each containing 2 to 5 items.</p>
+    <p>Remember:</p>
+    <p>• Judge each rotation as quickly and accurately as possible</p>
+    <p>• Memorise whether each letter is Normal or Mirror-reversed</p>
+    <p>• When prompted, indicate the orientation of each letter in order</p>
+    <p>• Keep your rotation accuracy above 85%</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+MAIN_SIZES.forEach((sz, setIdx) => {
+  const items  = pickMemItems(sz);
+  const tItems = items.map(it => ({ ...it }));
+
+  for (let i = 0; i < sz; i++) {
+    const prob = makeRotProblem();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: `
+        <p class="progress-note">Set ${setIdx + 1} of 12 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
+        ${rotTrialHTML(prob, true)}`,
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = rotTimeLimit; },
+      on_load:  startTimerBar,
+      data: {
+        trial_type:  'rot_main',
+        correct_key: prob.isRight ? 'j' : 'f',
+        is_right:    prob.isRight,
+        start_angle: prob.startAngle,
+        rotation:    prob.rotation,
+        final_angle: prob.finalAngle,
+        set_index:   setIdx,
+        item_index:  i,
+        set_size:    sz
+      },
+      on_finish: function (d) {
+        lastRotSlow   = d.response === null;
+        lastRotOK     = !lastRotSlow && d.response === d.correct_key;
+        d.rot_correct = lastRotOK;
+        d.timed_out   = lastRotSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => rotFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       memLetterHTML(items[i].letter, items[i].mirrored),
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data: {
+        trial_type:  'letter_main',
+        letter:      items[i].letter,
+        mirrored:    items[i].mirrored,
+        set_index:   setIdx,
+        item_index:  i,
+        set_size:    sz
+      }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(tItems),
+    choices: 'NO_KEYS',
+    on_load: () => setupLetterRecall(tItems),
+    data:    {
+      trial_type: 'recall_main',
+      target:     JSON.stringify(tItems.map(it => it.mirrored ? 'mirror' : 'normal')),
+      set_size:   sz,
+      set_index:  setIdx
+    }
+  });
+});
+
+
+// ================================================================
+//  COMPUTE SCORES
+// ================================================================
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const recallTrials = jsPsych.data.get().filter({ trial_type: 'recall_main' }).values();
+    const rotTrials    = jsPsych.data.get().filter({ trial_type: 'rot_main'    }).values();
+
+    finalPartial  = recallTrials.reduce((s, d) => s + (d.partial_correct  || 0), 0);
+    finalAbsolute = recallTrials.reduce((s, d) => s + (d.absolute_correct || 0), 0);
+    finalRotAcc   = rotTrials.length > 0
+      ? Math.round((rotTrials.filter(d => d.rot_correct).length / rotTrials.length) * 100)
+      : 0;
+  },
+  on_finish: function (d) {
+    d.trial_type          = 'summary';
+    d.partial_span_score  = finalPartial;
+    d.absolute_span_score = finalAbsolute;
+    d.rot_accuracy_main   = finalRotAcc;
+  }
+});
+
+
+// ================================================================
+//  END SCREEN
+// ================================================================
+timeline.push({
+  type:           jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    return `<div class="instr" style="text-align:center;">
+      <h2>Task Complete!</h2>
+      <p>Thank you for participating.</p>
+      <p style="margin-top:18px;">
+        <strong>Rotation accuracy (main task):</strong> ${finalRotAcc}%
+      </p>
+      <p style="color:#888;font-size:0.95em;margin-top:16px;">Saving your data&hellip;</p>
+    </div>`;
+  },
+  choices:        'NO_KEYS',
+  trial_duration: 2500
+});
+
+
+// ================================================================
+//  SAVE VIA DATAPIPE → OSF
+// ================================================================
+timeline.push({
+  type:          jsPsychPipe,
+  action:        'save',
+  experiment_id: PIPE_ID,
+  filename:      filename,
+  data_string:   () => jsPsych.data.get().csv()
+});
+
+
+// ================================================================
+//  RUN
+// ================================================================
+jsPsych.run(timeline);
+</script>
+</body>
+</html>
