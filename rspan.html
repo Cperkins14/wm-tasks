@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reading Span Task</title>
+
+  <script src="https://unpkg.com/jspsych@7.3.4"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
+
+  <style>
+    body { background: #fff; }
+    .jspsych-content { max-width: 800px; width: 100%; }
+
+    /* Instructions */
+    .instr { max-width: 680px; margin: 0 auto; line-height: 1.8; font-size: 1.05em; color: #222; }
+    .instr h2 { color: #1a237e; margin-bottom: 14px; }
+    .instr p  { margin: 10px 0; }
+    .key { display: inline-block; background: #eee; border: 1px solid #aaa;
+           border-radius: 4px; padding: 1px 8px; font-family: monospace; font-weight: bold; }
+
+    /* Sentence display */
+    .sentence-box { font-size: 1.55em; text-align: center; line-height: 1.6;
+                    color: #111; margin: 30px auto; max-width: 680px; }
+    .sentence-keys { text-align: center; font-size: 1em; color: #666; margin-bottom: 14px; }
+
+    /* Timer bar */
+    .timer-wrap { width: 380px; height: 16px; background: #ddd;
+                  border-radius: 8px; margin: 12px auto; overflow: hidden; }
+    .timer-fill { height: 100%; background: #43a047; border-radius: 8px; }
+
+    /* Letter display */
+    .letter-box { font-size: 6em; font-weight: 900; text-align: center;
+                  color: #111; margin: 40px 0; font-family: Arial, sans-serif; }
+
+    /* Recall grid */
+    .recall-wrap { text-align: center; }
+    .recall-instr { font-size: 1.15em; color: #333; margin-bottom: 10px; }
+    .recall-grid  { display: grid; grid-template-columns: repeat(4, 85px);
+                    gap: 10px; justify-content: center; margin: 12px auto; }
+    .rl-btn { font-size: 1.8em; font-weight: bold; width: 85px; height: 85px;
+              border-radius: 10px; border: 2px solid #555; background: #f4f4f4;
+              cursor: pointer; transition: background 0.1s; }
+    .rl-btn:hover:not(:disabled) { background: #e0e0e0; }
+    .rl-btn.picked { background: #1565c0; color: #fff; border-color: #0d47a1; }
+    .rl-btn:disabled { opacity: 0.45; cursor: default; }
+    .recall-seq { font-size: 1.5em; font-weight: bold; letter-spacing: 0.4em;
+                  min-height: 2em; color: #333; margin: 8px 0; }
+    .recall-actions { display: flex; justify-content: center; gap: 18px; margin-top: 14px; }
+    .btn-clear  { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #999; background: #ffe082; cursor: pointer; }
+    .btn-submit { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #2e7d32; background: #43a047; color: #fff; cursor: pointer; }
+
+    /* Feedback */
+    .fb-correct { color: #2e7d32; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-wrong   { color: #b71c1c; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-slow    { color: #e65100; font-size: 1.7em; font-weight: bold; text-align: center; }
+
+    /* Progress */
+    .progress-note { font-size: 0.88em; color: #888; text-align: center; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+<script>
+// ================================================================
+//  READING SPAN TASK
+//  Based on: Unsworth, Heitz, Schrock, & Engle (2005)
+//  Standard version — set sizes 3-7, 3 trials each (75 items max)
+// ================================================================
+
+const PIPE_ID     = '9oKz50mNsN8g';
+const LETTERS     = ['F','H','J','K','L','N','P','Q','R','S','T','Y'];
+const LETTER_MS   = 800;
+const FIXATION_MS = 250;
+const FEEDBACK_MS = 600;
+
+// Standard RSpan: 3 trials × set sizes 3–7
+const MAIN_SIZES = shuffle([3,3,3, 4,4,4, 5,5,5, 6,6,6, 7,7,7]);
+
+// --- STATE ---
+let practiceRTs     = [];
+let sentTimeLimit   = 8000;
+let practiceCorrect = 0;
+let lastSentOK      = false;
+let lastSentSlow    = false;
+let finalPartial    = 0;
+let finalAbsolute   = 0;
+let finalSentAcc    = 0;
+
+
+// ================================================================
+//  SENTENCE BANK
+//  TRUE  = sentence makes sense
+//  FALSE = sentence is anomalous / semantically impossible
+// ================================================================
+
+const TRUE_SENTENCES = [
+  "The student studied hard for her upcoming exam.",
+  "The dog barked loudly at the passing mailman.",
+  "She poured fresh coffee into her favorite mug.",
+  "The children played soccer in the park after school.",
+  "He read a novel before going to sleep each night.",
+  "The teacher wrote the answer on the whiteboard.",
+  "The rain fell steadily throughout the afternoon.",
+  "She baked a cake for her sister's birthday party.",
+  "The car stopped carefully at the red traffic light.",
+  "He bought fresh flowers at the downtown market.",
+  "The nurse checked the patient's blood pressure.",
+  "The bird built its nest high in the old oak tree.",
+  "She jogged two miles every morning before work.",
+  "The farmer harvested wheat from his large fields.",
+  "He locked the front door before leaving the house.",
+  "The baby laughed when her father made funny faces.",
+  "She folded the laundry and put it away neatly.",
+  "The swimmer dove into the cool blue pool.",
+  "He caught a large fish while sitting on the dock.",
+  "The librarian stamped the books before returning them.",
+  "She planted tomatoes in her garden last spring.",
+  "The chef seasoned the soup with salt and pepper.",
+  "He called his mother every Sunday evening.",
+  "The mechanic fixed the engine in under two hours.",
+  "She fed the cat before going to bed.",
+  "He brushed his teeth before getting into bed.",
+  "The dentist cleaned her teeth carefully during the visit.",
+  "She packed her suitcase the night before the trip.",
+  "The pilot landed the plane safely at the airport.",
+  "He watered the plants on the windowsill.",
+  "The painter covered the floor with a drop cloth.",
+  "She wore a warm coat on the cold winter morning.",
+  "The crowd cheered when the goal was scored.",
+  "He sharpened his pencil before starting the test.",
+  "The monkey swung through the trees in the jungle.",
+  "She turned off the lights before leaving the room.",
+  "The baker shaped the dough into round loaves.",
+  "He opened the window to let in the fresh air.",
+  "The cat curled up on the sunny windowsill.",
+  "The firefighter climbed the ladder to reach the roof.",
+  "He sent a letter to a friend who lived far away.",
+  "The child drew a rainbow with her crayons.",
+  "She wiped the table clean after finishing dinner.",
+  "The horse galloped across the wide green meadow.",
+  "He filled the bottle with cold water from the tap.",
+  "The scientist peered through the microscope carefully.",
+  "She hung the wet towels on the bathroom rack.",
+  "The musician tuned his guitar before the concert.",
+  "He drove to the grocery store to buy milk.",
+  "She answered the phone on the second ring.",
+  "The dog wagged its tail when its owner arrived home.",
+  "He printed the document and stapled the pages.",
+  "The boy kicked the ball over the fence by mistake.",
+  "She made a shopping list before going to the store.",
+  "The professor handed out the exam papers to students.",
+  "He caught the ball with one hand during the game.",
+  "The flowers bloomed brightly after the spring rain.",
+  "She set the alarm clock before going to bed.",
+  "He ate a bowl of cereal for breakfast this morning.",
+  "The children splashed happily in the shallow pool.",
+  "She tied her shoelaces before going for a walk.",
+  "The train arrived at the station exactly on time.",
+  "He hung a painting on the wall of his living room.",
+  "The gardener trimmed the hedges along the front path.",
+  "She read the menu carefully before ordering her meal.",
+  "The puppy chewed on a bone in the corner.",
+  "He replaced the burned-out bulb in the hallway.",
+  "The hikers reached the summit before noon.",
+  "She rinsed the dishes before putting them in the rack.",
+  "The librarian whispered when helping the students.",
+  "He polished his shoes before the job interview.",
+  "The cook stirred the pot of soup on the stove.",
+  "She buttoned her coat before stepping outside.",
+  "The athlete stretched before beginning the race.",
+  "He deposited his paycheck at the bank downtown.",
+  "The toddler stacked the colorful blocks on the floor.",
+  "She mailed the birthday card three days early.",
+  "The repairman replaced the broken tile in the bathroom.",
+  "He watched the sunset from the back porch.",
+];
+
+const FALSE_SENTENCES = [
+  "The chair ate a bowl of oatmeal for breakfast.",
+  "The cloud signed its name on the dotted line.",
+  "She watered her car every morning before work.",
+  "The pencil drove to the grocery store for milk.",
+  "He baked the telephone in the oven at midnight.",
+  "The table ran five miles before sunrise.",
+  "The mountain decided to wear a yellow raincoat.",
+  "She parked her sandwich in the hospital garage.",
+  "The book swam laps in the heated swimming pool.",
+  "He knitted a sweater out of fresh vegetables.",
+  "The window brushed its teeth after every meal.",
+  "She drove her pillow to work every Tuesday.",
+  "The lamp wrote a letter to its dentist.",
+  "He planted his socks in the garden last spring.",
+  "The chair called its mother every Sunday night.",
+  "She baked a loaf of cement for the school bake sale.",
+  "The toothbrush filed its taxes on the kitchen table.",
+  "He mowed his wristwatch before breakfast every morning.",
+  "The mailbox swam across the Atlantic Ocean.",
+  "She polished the clouds with her favorite cloth.",
+  "The river filed its nails before the big interview.",
+  "He folded the sunrise and put it in his pocket.",
+  "The doorknob passed its driving test on the first try.",
+  "She planted a row of telephone poles in her garden.",
+  "The clock galloped through the meadow at dawn.",
+  "He ate a plate of freshly laundered socks for lunch.",
+  "The umbrella studied chemistry at the local university.",
+  "She parked her vocabulary in the driveway overnight.",
+  "The stapler decided to go swimming in the ocean.",
+  "He trimmed the moonlight with a pair of scissors.",
+  "The dictionary drove to the beach every summer.",
+  "She watered the parking lot with her garden hose.",
+  "The shoelace cooked a meal for its hungry children.",
+  "He ironed his breakfast before leaving for work.",
+  "The hammer enrolled in ballet classes on Tuesday.",
+  "She combed the highway before going to bed.",
+  "The eraser built a nest in the tall oak tree.",
+  "He fed the traffic jam a bowl of chicken soup.",
+  "The calculator ran a marathon on a snowy morning.",
+  "She taught her refrigerator how to ride a bicycle.",
+  "The ladder answered the phone in the living room.",
+  "He cooked his umbrella in the microwave for lunch.",
+  "The suitcase planted a vegetable garden behind the house.",
+  "She drove her sunglasses to the hospital downtown.",
+  "The scissors barked at the mailman all afternoon.",
+  "He repaired the sunset with a roll of duct tape.",
+  "The bathtub graduated from medical school last spring.",
+  "She ironed the ocean before going to the beach.",
+  "The compass ate a slice of birthday cake at work.",
+  "He mailed his wristwatch to his childhood dentist.",
+  "The pillow caught a fish in the downtown library.",
+  "She buried her television in the backyard for winter.",
+  "The stapler galloped across the golden wheat field.",
+  "He painted his breakfast before going to the store.",
+  "The blanket drove her children to soccer practice.",
+  "She knitted a sweater out of fresh pasta dough.",
+  "The teapot ran for mayor of the city last year.",
+  "He climbed the refrigerator during the thunderstorm.",
+  "The doorbell studied for its final exams all night.",
+  "She planted her car keys in the vegetable garden.",
+  "The fence ordered a large pizza for delivery.",
+  "He watered his bicycle every evening after dinner.",
+  "The sock delivered a speech at the graduation ceremony.",
+  "She filed the clouds before going on vacation.",
+  "The dictionary swam across the lake in the rain.",
+  "He cooked his alarm clock for Sunday breakfast.",
+  "The window enrolled in a painting class downtown.",
+  "She drove her coffee mug to the hardware store.",
+  "The carpet ran a half-marathon last Saturday morning.",
+  "He ironed his cat before leaving for the airport.",
+  "The bathtub filed an application for a library card.",
+  "She planted her keys in the flower bed by the door.",
+  "The elevator decided to take a vacation to the mountains.",
+  "He brushed his lamp before going to sleep.",
+  "The envelope jogged five miles before breakfast.",
+  "She taught her stapler to play the piano.",
+  "The ceiling fan enrolled in night school last fall.",
+  "He folded his cat and put it in the drawer.",
+  "The microwave applied for a job at the bank.",
+  "She watered the sidewalk with her garden hose.",
+];
+
+
+// ================================================================
+//  UTILITY FUNCTIONS
+// ================================================================
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function pickLetters(n) {
+  return shuffle(LETTERS).slice(0, n);
+}
+
+// Build a shuffled pool of balanced true/false sentences
+function buildSentencePool() {
+  const trueShuffled  = shuffle(TRUE_SENTENCES).map(s  => ({ text: s,  correct: true  }));
+  const falseShuffled = shuffle(FALSE_SENTENCES).map(s => ({ text: s,  correct: false }));
+  const pool = [];
+  const maxLen = Math.max(trueShuffled.length, falseShuffled.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < trueShuffled.length)  pool.push(trueShuffled[i]);
+    if (i < falseShuffled.length) pool.push(falseShuffled[i]);
+  }
+  return shuffle(pool);
+}
+
+let sentencePool = buildSentencePool();
+let sentenceIdx  = 0;
+
+function nextSentence() {
+  if (sentenceIdx >= sentencePool.length) {
+    // Refill if we somehow exhaust (shouldn't happen)
+    sentencePool = buildSentencePool();
+    sentenceIdx  = 0;
+  }
+  return sentencePool[sentenceIdx++];
+}
+
+function recallHTML(n) {
+  const grid = LETTERS.map(l =>
+    `<button class="rl-btn" id="rl-${l}">${l}</button>`
+  ).join('');
+  return `
+    <div class="recall-wrap">
+      <p class="recall-instr">
+        Select the letters <strong>in the order they appeared</strong>
+        &nbsp;(${n} letter${n > 1 ? 's' : ''} needed):
+      </p>
+      <div class="recall-grid">${grid}</div>
+      <div class="recall-seq" id="recall-seq">&nbsp;</div>
+      <div class="recall-actions">
+        <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-submit" id="rc-submit">Submit</button>
+      </div>
+    </div>`;
+}
+
+function setupRecall(targets) {
+  let picked = [];
+
+  LETTERS.forEach(l => {
+    document.getElementById(`rl-${l}`).addEventListener('click', function () {
+      if (picked.length < targets.length && !this.disabled) {
+        picked.push(l);
+        this.classList.add('picked');
+        this.disabled = true;
+        document.getElementById('recall-seq').textContent = picked.join('  ');
+      }
+    });
+  });
+
+  document.getElementById('rc-clear').addEventListener('click', () => {
+    picked = [];
+    LETTERS.forEach(l => {
+      const b = document.getElementById(`rl-${l}`);
+      b.classList.remove('picked');
+      b.disabled = false;
+    });
+    document.getElementById('recall-seq').innerHTML = '&nbsp;';
+  });
+
+  document.getElementById('rc-submit').addEventListener('click', () => {
+    let partial = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (picked[i] === targets[i]) partial++;
+    }
+    const absolute = picked.join('') === targets.join('') ? 1 : 0;
+    jsPsych.finishTrial({
+      response:         picked.join(''),
+      target:           targets.join(''),
+      partial_correct:  partial,
+      absolute_correct: absolute,
+      set_size:         targets.length,
+      trial_type:       'recall'
+    });
+  });
+}
+
+function sentenceTrialHTML(text, showTimer) {
+  const timer = showTimer
+    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    : '';
+  return `
+    <div class="sentence-box">${text}</div>
+    <p class="sentence-keys">
+      <span class="key">F</span> Does NOT make sense &nbsp;&nbsp;
+      <span class="key">J</span> Makes sense
+    </p>
+    ${timer}`;
+}
+
+function startTimerBar() {
+  const bar = document.getElementById('t-bar');
+  if (!bar) return;
+  bar.style.transition = `width ${sentTimeLimit}ms linear`;
+  setTimeout(() => { if (bar) bar.style.width = '0%'; }, 30);
+}
+
+function sentFeedbackHTML() {
+  if (lastSentSlow) return `<p class="fb-slow">Too slow!</p>`;
+  return lastSentOK
+    ? `<p class="fb-correct">✓ Correct</p>`
+    : `<p class="fb-wrong">✗ Incorrect</p>`;
+}
+
+
+// ================================================================
+//  INIT JSPSYCH
+// ================================================================
+const jsPsych = initJsPsych({
+  on_finish: function () {
+    document.body.innerHTML = `
+      <div style="font-family:Arial;text-align:center;padding:80px;">
+        <h2>Task complete</h2>
+        <p>Your data has been saved to OSF. Thank you for participating.</p>
+        <p>You may close this window.</p>
+      </div>`;
+  }
+});
+
+const timeline = [];
+const filename = jsPsych.randomization.randomID(10) + '.csv';
+
+
+// ================================================================
+//  PARTICIPANT ID
+// ================================================================
+timeline.push({
+  type: jsPsychSurveyText,
+  questions: [{
+    prompt:   'Please enter your Participant ID:',
+    name:     'pid',
+    required: true
+  }],
+  on_finish: d => jsPsych.data.addProperties({ participant_id: d.response.pid })
+});
+
+
+// ================================================================
+//  PART 1 — SENTENCE PRACTICE ALONE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 1: Sentence Practice</h2>
+    <p>You will read a sentence and decide whether it <strong>makes sense</strong>.</p>
+    <p>Example of a sentence that makes sense:<br>
+       <em>"The dog chased the cat around the yard."</em></p>
+    <p>Example of a sentence that does NOT make sense:<br>
+       <em>"The bicycle ate a large piece of pizza."</em></p>
+    <p><span class="key">F</span> = Does NOT make sense &nbsp;&nbsp;
+       <span class="key">J</span> = Makes sense</p>
+    <p>Try to be as <strong>fast and accurate</strong> as possible.
+       You will read 15 practice sentences.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let i = 0; i < 15; i++) {
+  const sent = nextSentence();
+  timeline.push({
+    type:     jsPsychHtmlKeyboardResponse,
+    stimulus: sentenceTrialHTML(sent.text, false),
+    choices:  ['f', 'j'],
+    data:     { trial_type: 'sent_practice', correct_key: sent.correct ? 'j' : 'f', makes_sense: sent.correct },
+    on_finish: function (d) {
+      d.sent_correct = d.response === d.correct_key;
+      lastSentOK   = d.sent_correct;
+      lastSentSlow = false;
+      if (d.sent_correct) practiceCorrect++;
+      practiceRTs.push(d.rt);
+    }
+  });
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       () => sentFeedbackHTML(),
+    choices:        'NO_KEYS',
+    trial_duration: FEEDBACK_MS
+  });
+}
+
+// Compute individual time limit
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const n    = practiceRTs.length;
+    const mean = practiceRTs.reduce((a, b) => a + b, 0) / n;
+    const sd   = Math.sqrt(practiceRTs.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n);
+    sentTimeLimit = Math.round(Math.max(2500, Math.min(12000, mean + 2.5 * sd)));
+  }
+});
+
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    const acc = Math.round((practiceCorrect / 15) * 100);
+    const msg = acc < 85
+      ? `<p style="color:#b71c1c;font-weight:bold;">
+           Your accuracy was ${acc}%. Please try to be more careful —
+           you need at least <strong>85%</strong> accuracy on the sentences.</p>`
+      : `<p style="color:#2e7d32;font-weight:bold;">
+           Your accuracy was ${acc}% — great job!</p>`;
+    return `<div class="instr">
+      <h2>Sentence Practice Complete</h2>${msg}
+      <p>In the main task, each sentence will have a time limit based on your
+         practice speed. A timer bar will show how much time remains.</p>
+      <br><p style="color:#888">Press any key to continue.</p>
+    </div>`;
+  },
+  choices: 'ALL_KEYS'
+});
+
+
+// ================================================================
+//  PART 2 — LETTER PRACTICE ALONE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 2: Letter Practice</h2>
+    <p>Next, you will practice remembering letters.</p>
+    <p>A letter will appear briefly on screen — try to remember it.</p>
+    <p>After all the letters in a set, a grid will appear.
+       Click the letters you saw <strong>in the order they appeared</strong>.</p>
+    <p>You will practice with 3 sets of 3 letters each.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let s = 0; s < 3; s++) {
+  const letters  = pickLetters(3);
+  const tLetters = [...letters];
+
+  letters.forEach(l => {
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="letter-box">${l}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data:           { trial_type: 'letter_practice' }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  });
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(3),
+    choices: 'NO_KEYS',
+    on_load: () => setupRecall(tLetters),
+    data:    { trial_type: 'recall_practice', target: tLetters.join('') }
+  });
+
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+      const last = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      if (!last) return '';
+      return last.partial_correct === 3
+        ? `<p class="fb-correct">All 3 correct!</p>`
+        : `<p style="font-size:1.2em;text-align:center;color:#555">
+             You got ${last.partial_correct}/3 correct.
+             <br>Target order: <strong>${last.target}</strong></p>`;
+    },
+    choices:        'NO_KEYS',
+    trial_duration: 2200
+  });
+}
+
+
+// ================================================================
+//  PART 3 — COMBINED PRACTICE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 3: Combined Practice</h2>
+    <p>Now you will do both together: read a sentence and judge it,
+       then a letter will appear — remember it.</p>
+    <p>After all items in a set, recall the letters <strong>in order</strong>.</p>
+    <p>The sentences have a <strong>time limit</strong> — answer quickly!
+       You must maintain at least <strong>85% accuracy</strong> on the sentences.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+[2, 2, 3].forEach(sz => {
+  const letters  = pickLetters(sz);
+  const tLetters = [...letters];
+
+  for (let i = 0; i < sz; i++) {
+    const sent = nextSentence();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: sentenceTrialHTML(sent.text, true),
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = sentTimeLimit; },
+      on_load:  startTimerBar,
+      data:     { trial_type: 'sent_combined_practice', correct_key: sent.correct ? 'j' : 'f' },
+      on_finish: function (d) {
+        lastSentSlow   = d.response === null;
+        lastSentOK     = !lastSentSlow && d.response === d.correct_key;
+        d.sent_correct = lastSentOK;
+        d.timed_out    = lastSentSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => sentFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="letter-box">${letters[i]}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data:           { trial_type: 'letter_combined_practice' }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(sz),
+    choices: 'NO_KEYS',
+    on_load: () => setupRecall(tLetters),
+    data:    { trial_type: 'recall_combined_practice', target: tLetters.join('') }
+  });
+});
+
+
+// ================================================================
+//  MAIN TASK
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Main Task — Begin</h2>
+    <p>You are now ready for the main task.</p>
+    <p>You will complete <strong>15 sets</strong>, each containing 3 to 7 items.</p>
+    <p>Remember:</p>
+    <p>• Judge each sentence as quickly and accurately as possible</p>
+    <p>• Memorise each letter and its position in the sequence</p>
+    <p>• When prompted, recall the letters in the order they appeared</p>
+    <p>• Keep your sentence accuracy above 85%</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+MAIN_SIZES.forEach((sz, setIdx) => {
+  const letters  = pickLetters(sz);
+  const tLetters = [...letters];
+
+  for (let i = 0; i < sz; i++) {
+    const sent = nextSentence();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: `
+        <p class="progress-note">Set ${setIdx + 1} of 15 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
+        ${sentenceTrialHTML(sent.text, true)}`,
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = sentTimeLimit; },
+      on_load:  startTimerBar,
+      data: {
+        trial_type:    'sent_main',
+        sentence:      sent.text,
+        correct_key:   sent.correct ? 'j' : 'f',
+        makes_sense:   sent.correct,
+        set_index:     setIdx,
+        item_index:    i,
+        set_size:      sz,
+        target_letter: letters[i]
+      },
+      on_finish: function (d) {
+        lastSentSlow   = d.response === null;
+        lastSentOK     = !lastSentSlow && d.response === d.correct_key;
+        d.sent_correct = lastSentOK;
+        d.timed_out    = lastSentSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => sentFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="letter-box">${letters[i]}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data: {
+        trial_type: 'letter_main',
+        letter:     letters[i],
+        set_index:  setIdx,
+        item_index: i,
+        set_size:   sz
+      }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(sz),
+    choices: 'NO_KEYS',
+    on_load: () => setupRecall(tLetters),
+    data:    {
+      trial_type: 'recall_main',
+      target:     tLetters.join(''),
+      set_size:   sz,
+      set_index:  setIdx
+    }
+  });
+});
+
+
+// ================================================================
+//  COMPUTE SCORES
+// ================================================================
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const recallTrials = jsPsych.data.get().filter({ trial_type: 'recall_main' }).values();
+    const sentTrials   = jsPsych.data.get().filter({ trial_type: 'sent_main'   }).values();
+
+    finalPartial  = recallTrials.reduce((s, d) => s + (d.partial_correct  || 0), 0);
+    finalAbsolute = recallTrials.reduce((s, d) => s + (d.absolute_correct || 0), 0);
+    finalSentAcc  = sentTrials.length > 0
+      ? Math.round((sentTrials.filter(d => d.sent_correct).length / sentTrials.length) * 100)
+      : 0;
+  },
+  on_finish: function (d) {
+    d.trial_type          = 'summary';
+    d.partial_span_score  = finalPartial;
+    d.absolute_span_score = finalAbsolute;
+    d.sent_accuracy_main  = finalSentAcc;
+  }
+});
+
+
+// ================================================================
+//  END SCREEN
+// ================================================================
+timeline.push({
+  type:           jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    return `<div class="instr" style="text-align:center;">
+      <h2>Task Complete!</h2>
+      <p>Thank you for participating.</p>
+      <p style="margin-top:18px;">
+        <strong>Sentence accuracy (main task):</strong> ${finalSentAcc}%
+      </p>
+      <p style="color:#888;font-size:0.95em;margin-top:16px;">Saving your data&hellip;</p>
+    </div>`;
+  },
+  choices:        'NO_KEYS',
+  trial_duration: 2500
+});
+
+
+// ================================================================
+//  SAVE VIA DATAPIPE → OSF
+// ================================================================
+timeline.push({
+  type:          jsPsychPipe,
+  action:        'save',
+  experiment_id: PIPE_ID,
+  filename:      filename,
+  data_string:   () => jsPsych.data.get().csv()
+});
+
+
+// ================================================================
+//  RUN
+// ================================================================
+jsPsych.run(timeline);
+</script>
+</body>
+</html>
