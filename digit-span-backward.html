@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backward Digit Span</title>
+
+  <script src="https://unpkg.com/jspsych@7.3.4"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
+
+  <style>
+    body { background: #fff; }
+    .jspsych-content { max-width: 700px; width: 100%; }
+
+    /* Instructions */
+    .instr { max-width: 640px; margin: 0 auto; line-height: 1.8; font-size: 1.05em; color: #222; }
+    .instr h2 { color: #1a237e; margin-bottom: 14px; }
+    .instr p  { margin: 10px 0; }
+
+    /* Digit display */
+    .digit-box { font-size: 7em; font-weight: 900; text-align: center;
+                 color: #111; margin: 40px 0; font-family: Arial, sans-serif; }
+
+    /* Fixation */
+    .fixation { font-size: 3em; text-align: center; color: #aaa; margin: 60px 0; }
+
+    /* Recall numpad */
+    .recall-wrap   { text-align: center; }
+    .recall-instr  { font-size: 1.15em; color: #333; margin-bottom: 14px; }
+    .numpad        { display: grid; grid-template-columns: repeat(3, 90px);
+                     gap: 10px; justify-content: center; margin: 14px auto; }
+    .num-btn { font-size: 2em; font-weight: bold; width: 90px; height: 90px;
+               border-radius: 10px; border: 2px solid #555; background: #f4f4f4;
+               cursor: pointer; transition: background 0.1s; }
+    .num-btn:hover:not(:disabled) { background: #e0e0e0; }
+    .num-btn:disabled { opacity: 0.4; cursor: default; }
+    .num-btn.pressed { background: #1565c0; color: #fff; border-color: #0d47a1; }
+    .num-zero-row  { display: flex; justify-content: center; margin-top: 10px; }
+
+    /* Response display */
+    .response-display { font-size: 1.8em; font-weight: bold; letter-spacing: 0.5em;
+                        min-height: 2em; color: #333; margin: 10px 0; text-align: center; }
+    .response-label { font-size: 0.9em; color: #888; text-align: center; }
+
+    /* Controls */
+    .recall-controls { display: flex; justify-content: center; gap: 18px; margin-top: 16px; }
+    .btn-clear  { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #999; background: #ffe082; cursor: pointer; }
+    .btn-submit { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #2e7d32; background: #43a047; color: #fff; cursor: pointer; }
+
+    /* Feedback */
+    .fb-correct { color: #2e7d32; font-size: 1.8em; font-weight: bold; text-align: center; }
+    .fb-wrong   { color: #b71c1c; font-size: 1.8em; font-weight: bold; text-align: center; }
+    .fb-target  { font-size: 1em; color: #555; text-align: center; margin-top: 8px; }
+
+    /* Progress */
+    .progress-note { font-size: 0.88em; color: #888; text-align: center; margin-bottom: 6px; }
+
+    /* Ready screen */
+    .ready-box { font-size: 1.3em; text-align: center; color: #333; }
+    .span-label { font-size: 1.1em; color: #1a237e; font-weight: bold; }
+  </style>
+</head>
+<body>
+<script>
+// ================================================================
+//  BACKWARD DIGIT SPAN
+//  Standard research version
+//  Lengths 2–9, 2 trials each (16 trials total)
+//  Recall in REVERSE order via clickable numpad
+// ================================================================
+
+const PIPE_ID     = '9oKz50mNsN8g';
+const DIGIT_MS    = 1000;  // each digit display duration
+const FIXATION_MS = 500;   // blank before first digit and between trials
+const FEEDBACK_MS = 2000;
+
+// Lengths 2–9, 2 trials each
+const SPAN_LENGTHS = [2,2, 3,3, 4,4, 5,5, 6,6, 7,7, 8,8, 9,9];
+
+// --- STATE ---
+let finalSpanScore   = 0;  // longest length with ≥1/2 correct
+let finalTotalScore  = 0;  // total trials correct
+let lengthResults    = {}; // { 2: [true, false], 3: [...], ... }
+
+
+// ================================================================
+//  UTILITY
+// ================================================================
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Generate n unique digits (0–9, no immediate repeats, no repeated digits) */
+function makeDigitSequence(n) {
+  const digits = shuffle([0,1,2,3,4,5,6,7,8,9]);
+  return digits.slice(0, n);
+}
+
+/** Build the numpad HTML */
+function numpadHTML(seqLen) {
+  const rows = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+  ];
+  let pad = '<div class="numpad">';
+  rows.forEach(row => {
+    row.forEach(d => {
+      pad += `<button class="num-btn" id="nb-${d}" data-digit="${d}">${d}</button>`;
+    });
+  });
+  pad += '</div>';
+  // Zero on its own row, centred
+  pad += `<div class="num-zero-row">
+    <button class="num-btn" id="nb-0" data-digit="0">0</button>
+  </div>`;
+
+  return `
+    <div class="recall-wrap">
+      <p class="recall-instr">
+        Type the digits you heard <strong>BACKWARDS</strong>
+        &nbsp;(last digit first).
+      </p>
+      <p class="recall-instr" style="color:#1a237e;">
+        You heard <strong>${seqLen} digits</strong> — enter <strong>${seqLen} digits</strong> in reverse order.
+      </p>
+      <div class="response-label">Your response:</div>
+      <div class="response-display" id="resp-display">&nbsp;</div>
+      ${pad}
+      <div class="recall-controls">
+        <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-submit" id="rc-submit">Submit</button>
+      </div>
+    </div>`;
+}
+
+/** Wire up numpad click handlers */
+function setupNumpad(target, seqLen) {
+  // target = original sequence (forward order)
+  // correct recall = target reversed
+  let entered = [];
+
+  document.querySelectorAll('.num-btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+      if (entered.length < seqLen) {
+        const d = parseInt(this.dataset.digit);
+        entered.push(d);
+        this.classList.add('pressed');
+        // Don't disable — same digit could appear (though unlikely given our generator)
+        const disp = document.getElementById('resp-display');
+        if (disp) disp.textContent = entered.join('  ');
+      }
+    });
+  });
+
+  document.getElementById('rc-clear').addEventListener('click', () => {
+    entered = [];
+    document.querySelectorAll('.num-btn').forEach(b => b.classList.remove('pressed'));
+    document.getElementById('resp-display').innerHTML = '&nbsp;';
+  });
+
+  document.getElementById('rc-submit').addEventListener('click', () => {
+    const correct = [...target].reverse();
+    let nCorrect = 0;
+    for (let i = 0; i < target.length; i++) {
+      if (entered[i] === correct[i]) nCorrect++;
+    }
+    const allCorrect = entered.join('') === correct.join('');
+
+    jsPsych.finishTrial({
+      trial_type:      'recall_main',
+      response:        entered.join(''),
+      target_forward:  target.join(''),
+      target_backward: correct.join(''),
+      digits_correct:  nCorrect,
+      all_correct:     allCorrect,
+      span_length:     target.length
+    });
+  });
+}
+
+
+// ================================================================
+//  INIT JSPSYCH
+// ================================================================
+const jsPsych = initJsPsych({
+  on_finish: function () {
+    document.body.innerHTML = `
+      <div style="font-family:Arial;text-align:center;padding:80px;">
+        <h2>Task complete</h2>
+        <p>Your data has been saved to OSF. Thank you for participating.</p>
+        <p>You may close this window.</p>
+      </div>`;
+  }
+});
+
+const timeline = [];
+const filename = jsPsych.randomization.randomID(10) + '.csv';
+
+
+// ================================================================
+//  PARTICIPANT ID
+// ================================================================
+timeline.push({
+  type: jsPsychSurveyText,
+  questions: [{
+    prompt:   'Please enter your Participant ID:',
+    name:     'pid',
+    required: true
+  }],
+  on_finish: d => jsPsych.data.addProperties({ participant_id: d.response.pid })
+});
+
+
+// ================================================================
+//  INSTRUCTIONS
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Backward Digit Span</h2>
+    <p>In this task, you will see a series of digits appear one at a time on the screen.</p>
+    <p>Your job is to remember the digits and then recall them
+       <strong>in reverse order</strong> — starting from the <em>last</em>
+       digit you saw and ending with the <em>first</em>.</p>
+    <p>For example, if you see <strong>3 &nbsp; 8 &nbsp; 4</strong>,
+       you would enter <strong>4 &nbsp; 8 &nbsp; 3</strong>.</p>
+    <p>The sequences will get longer as the task goes on.
+       Do your best even when the sequences become difficult.</p>
+    <br><p style="color:#888">Press any key to begin the practice.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+
+// ================================================================
+//  PRACTICE (2 trials: length 2 and length 3)
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Practice</h2>
+    <p>You will now do 2 short practice sequences to get used to the task.</p>
+    <p>Remember: enter the digits <strong>BACKWARDS</strong> —
+       last digit first.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+[2, 3].forEach((len, pi) => {
+  const seq     = makeDigitSequence(len);
+  const seqCopy = [...seq];
+
+  // Ready screen
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       `<div class="ready-box">
+                       <p>Practice ${pi + 1} of 2</p>
+                       <p class="span-label">Sequence length: ${len}</p>
+                       <p style="color:#888;font-size:0.9em;margin-top:16px;">Get ready…</p>
+                     </div>`,
+    choices:        'NO_KEYS',
+    trial_duration: 1200
+  });
+
+  // Fixation
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       '<div class="fixation">+</div>',
+    choices:        'NO_KEYS',
+    trial_duration: FIXATION_MS
+  });
+
+  // Show each digit
+  seq.forEach(d => {
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="digit-box">${d}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: DIGIT_MS,
+      data:           { trial_type: 'digit_display_practice' }
+    });
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div class="digit-box" style="color:transparent">0</div>',
+      choices:        'NO_KEYS',
+      trial_duration: 200
+    });
+  });
+
+  // Recall
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: numpadHTML(len),
+    choices: 'NO_KEYS',
+    on_load: () => setupNumpad(seqCopy, len),
+    data:    { trial_type: 'recall_practice', span_length: len, target_forward: seqCopy.join('') }
+  });
+
+  // Feedback
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+      const last    = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      if (!last) return '';
+      const correct = [...seqCopy].reverse().join(' ');
+      return last.all_correct
+        ? `<p class="fb-correct">Correct!</p>
+           <p class="fb-target">Backward order: <strong>${correct}</strong></p>`
+        : `<p class="fb-wrong">Not quite.</p>
+           <p class="fb-target">The correct backward order was: <strong>${correct}</strong></p>`;
+    },
+    choices:        'NO_KEYS',
+    trial_duration: FEEDBACK_MS
+  });
+});
+
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Practice Complete</h2>
+    <p>Now the main task will begin. The sequences will start short and
+       get progressively longer.</p>
+    <p>Remember to always enter the digits <strong>in reverse order</strong>.</p>
+    <p>You will not receive feedback during the main task.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+
+// ================================================================
+//  MAIN TASK — Lengths 2–9, 2 trials each
+// ================================================================
+
+// Group trials by length so we can track per-length results
+let trialCount = 0;
+const totalTrials = SPAN_LENGTHS.length; // 16
+
+SPAN_LENGTHS.forEach((len, trialIdx) => {
+  const seq     = makeDigitSequence(len);
+  const seqCopy = [...seq];
+
+  // Ready / between-trial screen
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       `<div class="ready-box">
+                       <p class="progress-note">Trial ${trialIdx + 1} of ${totalTrials}</p>
+                       <p style="color:#888;font-size:0.95em;margin-top:10px;">Get ready…</p>
+                     </div>`,
+    choices:        'NO_KEYS',
+    trial_duration: 1000
+  });
+
+  // Fixation
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       '<div class="fixation">+</div>',
+    choices:        'NO_KEYS',
+    trial_duration: FIXATION_MS
+  });
+
+  // Show digits one at a time
+  seq.forEach(d => {
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="digit-box">${d}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: DIGIT_MS,
+      data:           { trial_type: 'digit_display', span_length: len }
+    });
+    // Brief blank between digits
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div class="digit-box" style="color:transparent">0</div>',
+      choices:        'NO_KEYS',
+      trial_duration: 200
+    });
+  });
+
+  // Recall via numpad
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: numpadHTML(len),
+    choices: 'NO_KEYS',
+    on_load: () => setupNumpad(seqCopy, len),
+    data:    {
+      trial_type:     'recall_main',
+      span_length:    len,
+      trial_index:    trialIdx,
+      target_forward: seqCopy.join('')
+    },
+    on_finish: function (d) {
+      if (!lengthResults[len]) lengthResults[len] = [];
+      lengthResults[len].push(d.all_correct);
+    }
+  });
+});
+
+
+// ================================================================
+//  COMPUTE SCORES
+// ================================================================
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const recallData = jsPsych.data.get().filter({ trial_type: 'recall_main' }).values();
+
+    // Total correct trials
+    finalTotalScore = recallData.filter(d => d.all_correct).length;
+
+    // Span score = longest length with ≥1 trial correct out of 2
+    finalSpanScore = 0;
+    for (let len = 2; len <= 9; len++) {
+      const results = lengthResults[len] || [];
+      const nCorrect = results.filter(Boolean).length;
+      if (nCorrect >= 1) finalSpanScore = len;
+    }
+  },
+  on_finish: function (d) {
+    d.trial_type          = 'summary';
+    d.backward_span_score = finalSpanScore;
+    d.total_trials_correct = finalTotalScore;
+    d.total_trials        = SPAN_LENGTHS.length;
+  }
+});
+
+
+// ================================================================
+//  END SCREEN
+// ================================================================
+timeline.push({
+  type:           jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    return `<div class="instr" style="text-align:center;">
+      <h2>Task Complete!</h2>
+      <p>Thank you for participating.</p>
+      <p style="margin-top:18px;">
+        <strong>Backward span score:</strong> ${finalSpanScore}
+      </p>
+      <p style="color:#888;font-size:0.95em;margin-top:16px;">Saving your data&hellip;</p>
+    </div>`;
+  },
+  choices:        'NO_KEYS',
+  trial_duration: 2500
+});
+
+
+// ================================================================
+//  SAVE VIA DATAPIPE → OSF
+// ================================================================
+timeline.push({
+  type:          jsPsychPipe,
+  action:        'save',
+  experiment_id: PIPE_ID,
+  filename:      filename,
+  data_string:   () => jsPsych.data.get().csv()
+});
+
+
+// ================================================================
+//  RUN
+// ================================================================
+jsPsych.run(timeline);
+</script>
+</body>
+</html>
