@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operation Span Task</title>
+
+  <!-- jsPsych 7 -->
+  <script src="https://unpkg.com/jspsych@7.3.4"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
+
+  <style>
+    body { background: #ffffff; }
+    .jspsych-content { max-width: 780px; width: 100%; }
+
+    /* Instructions */
+    .instr { max-width: 660px; margin: 0 auto; line-height: 1.8; font-size: 1.05em; color: #222; }
+    .instr h2 { color: #1a237e; margin-bottom: 14px; }
+    .instr p  { margin: 10px 0; }
+    .key { display: inline-block; background: #eee; border: 1px solid #aaa;
+           border-radius: 4px; padding: 1px 8px; font-family: monospace; font-weight: bold; }
+
+    /* Math */
+    .math-problem { font-size: 2.4em; text-align: center; margin: 28px 0;
+                    color: #111; font-family: 'Courier New', monospace; }
+    .math-keys { text-align: center; font-size: 1em; color: #666; margin-bottom: 16px; }
+
+    /* Timer bar */
+    .timer-wrap { width: 380px; height: 16px; background: #ddd;
+                  border-radius: 8px; margin: 14px auto; overflow: hidden; }
+    .timer-fill { height: 100%; background: #43a047; border-radius: 8px; }
+
+    /* Letter */
+    .letter-box { font-size: 6em; font-weight: 900; text-align: center;
+                  color: #111; margin: 40px 0; font-family: Arial, sans-serif; }
+
+    /* Recall */
+    .recall-wrap { text-align: center; }
+    .recall-instr { font-size: 1.15em; color: #333; margin-bottom: 10px; }
+    .recall-grid { display: grid; grid-template-columns: repeat(4, 85px);
+                   gap: 10px; justify-content: center; margin: 12px auto; }
+    .rl-btn { font-size: 1.8em; font-weight: bold; width: 85px; height: 85px;
+              border-radius: 10px; border: 2px solid #555; background: #f4f4f4;
+              cursor: pointer; transition: background 0.1s; }
+    .rl-btn:hover:not(:disabled) { background: #e0e0e0; }
+    .rl-btn.picked { background: #1565c0; color: #fff; border-color: #0d47a1; }
+    .rl-btn:disabled { opacity: 0.45; cursor: default; }
+    .recall-seq { font-size: 1.5em; font-weight: bold; letter-spacing: 0.4em;
+                  min-height: 2em; color: #333; margin: 8px 0; }
+    .recall-actions { display: flex; justify-content: center; gap: 18px; margin-top: 14px; }
+    .btn-clear  { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #999; background: #ffe082; cursor: pointer; }
+    .btn-submit { font-size: 1.05em; padding: 11px 30px; border-radius: 8px;
+                  border: 2px solid #2e7d32; background: #43a047; color: #fff; cursor: pointer; }
+
+    /* Feedback */
+    .fb-correct { color: #2e7d32; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-wrong   { color: #b71c1c; font-size: 2.2em; font-weight: bold; text-align: center; }
+    .fb-slow    { color: #e65100; font-size: 1.7em; font-weight: bold; text-align: center; }
+
+    /* Progress */
+    .progress-note { font-size: 0.88em; color: #888; text-align: center; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+<script>
+// ================================================================
+//  OPERATION SPAN TASK
+//  Based on: Unsworth, Heitz, Schrock, & Engle (2005)
+//  Standard version — set sizes 3-7, 3 trials each (75 items max)
+// ================================================================
+
+// --- CONFIG ---
+const PIPE_ID      = '9oKz50mNsN8g';
+const LETTERS      = ['F','H','J','K','L','N','P','Q','R','S','T','Y'];
+const LETTER_MS    = 800;   // letter display duration
+const FIXATION_MS  = 250;   // blank between items
+const FEEDBACK_MS  = 600;   // math feedback duration
+
+// Standard OSpan: 3 trials × set sizes 3–7
+const MAIN_SIZES = shuffle([3,3,3, 4,4,4, 5,5,5, 6,6,6, 7,7,7]);
+
+// --- STATE ---
+let practiceRTs      = [];
+let mathTimeLimit    = 8000;   // updated after practice (mean + 2.5 SD)
+let practiceCorrect  = 0;
+let lastMathOK       = false;
+let lastMathSlow     = false;
+let finalPartial     = 0;
+let finalAbsolute    = 0;
+let finalMathAcc     = 0;
+
+
+// ================================================================
+//  UTILITY FUNCTIONS
+// ================================================================
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function pickLetters(n) {
+  return shuffle(LETTERS).slice(0, n);
+}
+
+function makeMath() {
+  const ops = ['+', '-', '*'];
+  let a, b, c, mid, ans, op1, op2, tries = 0;
+  do {
+    op1 = ops[Math.floor(Math.random() * 3)];
+    op2 = ops[Math.floor(Math.random() * 3)];
+    a   = Math.floor(Math.random() * 9) + 1;
+    b   = Math.floor(Math.random() * 9) + 1;
+    c   = Math.floor(Math.random() * 9) + 1;
+    mid = op1 === '+' ? a+b : op1 === '-' ? a-b : a*b;
+    ans = op2 === '+' ? mid+c : op2 === '-' ? mid-c : mid*c;
+    tries++;
+  } while ((ans < 0 || ans > 99) && tries < 100);
+
+  const correct = Math.random() > 0.5;
+  let shown = ans;
+  if (!correct) {
+    let off = Math.floor(Math.random() * 2) + 1;
+    shown = ans + (Math.random() > 0.5 ? off : -off);
+    if (shown === ans) shown = ans + 1;
+  }
+  const s1 = op1 === '*' ? '×' : op1;
+  const s2 = op2 === '*' ? '×' : op2;
+  return { text: `(${a} ${s1} ${b}) ${s2} ${c} = ${shown}`, correct };
+}
+
+function recallHTML(n) {
+  const grid = LETTERS.map(l =>
+    `<button class="rl-btn" id="rl-${l}">${l}</button>`
+  ).join('');
+  return `
+    <div class="recall-wrap">
+      <p class="recall-instr">
+        Select the letters <strong>in the order they appeared</strong>
+        &nbsp;(${n} letter${n > 1 ? 's' : ''} needed):
+      </p>
+      <div class="recall-grid">${grid}</div>
+      <div class="recall-seq" id="recall-seq">&nbsp;</div>
+      <div class="recall-actions">
+        <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-submit" id="rc-submit">Submit</button>
+      </div>
+    </div>`;
+}
+
+function setupRecall(targets) {
+  let picked = [];
+
+  LETTERS.forEach(l => {
+    document.getElementById(`rl-${l}`).addEventListener('click', function () {
+      if (picked.length < targets.length && !this.disabled) {
+        picked.push(l);
+        this.classList.add('picked');
+        this.disabled = true;
+        document.getElementById('recall-seq').textContent = picked.join('  ');
+      }
+    });
+  });
+
+  document.getElementById('rc-clear').addEventListener('click', () => {
+    picked = [];
+    LETTERS.forEach(l => {
+      const b = document.getElementById(`rl-${l}`);
+      b.classList.remove('picked');
+      b.disabled = false;
+    });
+    document.getElementById('recall-seq').innerHTML = '&nbsp;';
+  });
+
+  document.getElementById('rc-submit').addEventListener('click', () => {
+    let partial = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (picked[i] === targets[i]) partial++;
+    }
+    const absolute = picked.join('') === targets.join('') ? 1 : 0;
+    jsPsych.finishTrial({
+      response:         picked.join(''),
+      target:           targets.join(''),
+      partial_correct:  partial,
+      absolute_correct: absolute,
+      set_size:         targets.length
+    });
+  });
+}
+
+function mathTrialHTML(problemText, showTimer) {
+  const timer = showTimer
+    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    : '';
+  return `
+    <p class="math-problem">${problemText}</p>
+    <p class="math-keys">
+      <span class="key">F</span> FALSE &nbsp;&nbsp;&nbsp;
+      <span class="key">J</span> TRUE
+    </p>
+    ${timer}`;
+}
+
+function startTimerBar() {
+  const bar = document.getElementById('t-bar');
+  if (!bar) return;
+  bar.style.transition = `width ${mathTimeLimit}ms linear`;
+  setTimeout(() => { if (bar) bar.style.width = '0%'; }, 30);
+}
+
+function mathFeedbackHTML() {
+  if (lastMathSlow) return `<p class="fb-slow">Too slow!</p>`;
+  return lastMathOK
+    ? `<p class="fb-correct">✓ Correct</p>`
+    : `<p class="fb-wrong">✗ Incorrect</p>`;
+}
+
+
+// ================================================================
+//  INIT JSPSYCH
+// ================================================================
+const jsPsych = initJsPsych({
+  on_finish: function () {
+    document.body.innerHTML = `
+      <div style="font-family:Arial;text-align:center;padding:80px;">
+        <h2>Task complete</h2>
+        <p>Your data has been saved to OSF. Thank you for participating.</p>
+        <p>You may close this window.</p>
+      </div>`;
+  }
+});
+
+const timeline = [];
+const filename = jsPsych.randomization.randomID(10) + '.csv';
+
+
+// ================================================================
+//  PARTICIPANT ID
+// ================================================================
+timeline.push({
+  type: jsPsychSurveyText,
+  questions: [{
+    prompt: 'Please enter your Participant ID:',
+    name:   'pid',
+    required: true
+  }],
+  on_finish: d => jsPsych.data.addProperties({ participant_id: d.response.pid })
+});
+
+
+// ================================================================
+//  PART 1 — MATH PRACTICE ALONE
+// ================================================================
+timeline.push({
+  type: jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 1: Math Practice</h2>
+    <p>You will see math problems like: <strong>(3 × 4) + 2 = 14</strong></p>
+    <p>Decide whether the answer shown is correct or not.</p>
+    <p><span class="key">F</span> = FALSE &nbsp;&nbsp;
+       <span class="key">J</span> = TRUE</p>
+    <p>Try to be as <strong>fast and accurate</strong> as possible.
+       You will complete 15 practice problems.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let i = 0; i < 15; i++) {
+  const prob = makeMath();
+  timeline.push({
+    type:     jsPsychHtmlKeyboardResponse,
+    stimulus: mathTrialHTML(prob.text, false),
+    choices:  ['f', 'j'],
+    data:     { trial_type: 'math_practice', correct_key: prob.correct ? 'j' : 'f' },
+    on_finish: function (d) {
+      d.math_correct = d.response === d.correct_key;
+      lastMathOK   = d.math_correct;
+      lastMathSlow = false;
+      if (d.math_correct) practiceCorrect++;
+      practiceRTs.push(d.rt);
+    }
+  });
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus:       () => mathFeedbackHTML(),
+    choices:        'NO_KEYS',
+    trial_duration: FEEDBACK_MS
+  });
+}
+
+// Compute individual time limit
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const n    = practiceRTs.length;
+    const mean = practiceRTs.reduce((a, b) => a + b, 0) / n;
+    const sd   = Math.sqrt(practiceRTs.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n);
+    mathTimeLimit = Math.round(Math.max(2500, Math.min(10000, mean + 2.5 * sd)));
+  }
+});
+
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    const acc = Math.round((practiceCorrect / 15) * 100);
+    const msg = acc < 85
+      ? `<p style="color:#b71c1c;font-weight:bold;">
+           Your accuracy was ${acc}%. Please try to be more careful —
+           you need at least <strong>85%</strong> accuracy on math problems.</p>`
+      : `<p style="color:#2e7d32;font-weight:bold;">
+           Your accuracy was ${acc}% — great job!</p>`;
+    return `<div class="instr">
+      <h2>Math Practice Complete</h2>${msg}
+      <p>In the main task, each math problem will have a time limit based on
+         your practice speed. A timer bar will show how much time you have.</p>
+      <br><p style="color:#888">Press any key to continue.</p>
+    </div>`;
+  },
+  choices: 'ALL_KEYS'
+});
+
+
+// ================================================================
+//  PART 2 — LETTER PRACTICE ALONE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 2: Letter Practice</h2>
+    <p>A letter will appear briefly on screen. Try to remember it.</p>
+    <p>After all the letters in a set, a grid will appear.
+       Click the letters you saw <strong>in the order they appeared</strong>.</p>
+    <p>You will practice with 3 sets of 3 letters each.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+for (let s = 0; s < 3; s++) {
+  const letters  = pickLetters(3);
+  const tLetters = [...letters];
+
+  letters.forEach(l => {
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: `<div class="letter-box">${l}</div>`,
+      choices: 'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data: { trial_type: 'letter_practice' }
+    });
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '<div style="height:80px"></div>',
+      choices: 'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  });
+
+  timeline.push({
+    type:     jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(3),
+    choices:  'NO_KEYS',
+    on_load:  () => setupRecall(tLetters),
+    data:     { trial_type: 'recall_practice', target: tLetters.join('') }
+  });
+
+  timeline.push({
+    type:           jsPsychHtmlKeyboardResponse,
+    stimulus: function () {
+      const last = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      if (!last) return '';
+      return last.partial_correct === 3
+        ? `<p class="fb-correct">All 3 correct!</p>`
+        : `<p style="font-size:1.2em;text-align:center;color:#555">
+             You recalled ${last.partial_correct}/3 correctly.
+             <br>Target order: <strong>${last.target}</strong></p>`;
+    },
+    choices:        'NO_KEYS',
+    trial_duration: 2200
+  });
+}
+
+
+// ================================================================
+//  PART 3 — COMBINED PRACTICE
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Part 3: Combined Practice</h2>
+    <p>Now you will practice both together: solve a math problem,
+       then see a letter to remember — then solve another math problem,
+       see another letter, and so on.</p>
+    <p>After all items in a set, recall the letters <strong>in order</strong>.</p>
+    <p>The math problems have a <strong>time limit</strong> — answer quickly!
+       The timer bar shows how much time remains.</p>
+    <p><strong>Important:</strong> you must get at least 85% of math problems
+       correct. Don't sacrifice accuracy for speed.</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+[2, 2, 3].forEach(sz => {
+  const letters  = pickLetters(sz);
+  const tLetters = [...letters];
+
+  for (let i = 0; i < sz; i++) {
+    const prob = makeMath();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: mathTrialHTML(prob.text, true),
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = mathTimeLimit; },
+      on_load:  startTimerBar,
+      data:     { trial_type: 'math_combined_practice', correct_key: prob.correct ? 'j' : 'f' },
+      on_finish: function (d) {
+        lastMathSlow = d.response === null;
+        lastMathOK   = !lastMathSlow && d.response === d.correct_key;
+        d.math_correct = lastMathOK;
+        d.timed_out    = lastMathSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => mathFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: `<div class="letter-box">${letters[i]}</div>`,
+      choices: 'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data: { trial_type: 'letter_combined_practice' }
+    });
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '<div style="height:80px"></div>',
+      choices: 'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:     jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(sz),
+    choices:  'NO_KEYS',
+    on_load:  () => setupRecall(tLetters),
+    data:     { trial_type: 'recall_combined_practice', target: tLetters.join('') }
+  });
+});
+
+
+// ================================================================
+//  MAIN TASK
+// ================================================================
+timeline.push({
+  type:     jsPsychHtmlKeyboardResponse,
+  stimulus: `<div class="instr">
+    <h2>Main Task — Begin</h2>
+    <p>You are now ready for the main task.</p>
+    <p>You will complete <strong>15 sets</strong>, each containing 3 to 7 items.</p>
+    <p>Remember:</p>
+    <p>• Respond to every math problem as quickly and accurately as possible</p>
+    <p>• Memorise each letter and its position</p>
+    <p>• Recall all letters in order when prompted</p>
+    <p>• Keep your math accuracy above 85%</p>
+    <br><p style="color:#888">Press any key to begin.</p>
+  </div>`,
+  choices: 'ALL_KEYS'
+});
+
+MAIN_SIZES.forEach((sz, setIdx) => {
+  const letters  = pickLetters(sz);
+  const tLetters = [...letters];
+
+  for (let i = 0; i < sz; i++) {
+    const prob = makeMath();
+
+    timeline.push({
+      type:     jsPsychHtmlKeyboardResponse,
+      stimulus: `
+        <p class="progress-note">Set ${setIdx + 1} of 15 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
+        ${mathTrialHTML(prob.text, true)}`,
+      choices:  ['f', 'j'],
+      on_start: trial => { trial.trial_duration = mathTimeLimit; },
+      on_load:  startTimerBar,
+      data: {
+        trial_type:    'math_main',
+        correct_key:   prob.correct ? 'j' : 'f',
+        set_index:     setIdx,
+        item_index:    i,
+        set_size:      sz,
+        target_letter: letters[i]
+      },
+      on_finish: function (d) {
+        lastMathSlow   = d.response === null;
+        lastMathOK     = !lastMathSlow && d.response === d.correct_key;
+        d.math_correct = lastMathOK;
+        d.timed_out    = lastMathSlow;
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       () => mathFeedbackHTML(),
+      choices:        'NO_KEYS',
+      trial_duration: FEEDBACK_MS
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       `<div class="letter-box">${letters[i]}</div>`,
+      choices:        'NO_KEYS',
+      trial_duration: LETTER_MS,
+      data: {
+        trial_type: 'letter_main',
+        letter:     letters[i],
+        set_index:  setIdx,
+        item_index: i,
+        set_size:   sz
+      }
+    });
+
+    timeline.push({
+      type:           jsPsychHtmlKeyboardResponse,
+      stimulus:       '<div style="height:80px"></div>',
+      choices:        'NO_KEYS',
+      trial_duration: FIXATION_MS
+    });
+  }
+
+  timeline.push({
+    type:    jsPsychHtmlKeyboardResponse,
+    stimulus: recallHTML(sz),
+    choices: 'NO_KEYS',
+    on_load: () => setupRecall(tLetters),
+    data:    { trial_type: 'recall_main', target: tLetters.join(''), set_size: sz, set_index: setIdx }
+  });
+});
+
+
+// ================================================================
+//  COMPUTE SCORES
+// ================================================================
+timeline.push({
+  type: jsPsychCallFunction,
+  func: function () {
+    const recallTrials = jsPsych.data.get().filter({ trial_type: 'recall_main' }).values();
+    const mathTrials   = jsPsych.data.get().filter({ trial_type: 'math_main'   }).values();
+
+    finalPartial  = recallTrials.reduce((s, d) => s + (d.partial_correct  || 0), 0);
+    finalAbsolute = recallTrials.reduce((s, d) => s + (d.absolute_correct || 0), 0);
+    finalMathAcc  = mathTrials.length > 0
+      ? Math.round((mathTrials.filter(d => d.math_correct).length / mathTrials.length) * 100)
+      : 0;
+  },
+  on_finish: function (d) {
+    // Write summary scores into this row so they appear in the CSV
+    d.trial_type          = 'summary';
+    d.partial_span_score  = finalPartial;
+    d.absolute_span_score = finalAbsolute;
+    d.math_accuracy_main  = finalMathAcc;
+  }
+});
+
+
+// ================================================================
+//  END SCREEN
+// ================================================================
+timeline.push({
+  type:           jsPsychHtmlKeyboardResponse,
+  stimulus: function () {
+    return `<div class="instr" style="text-align:center;">
+      <h2>Task Complete!</h2>
+      <p>Thank you for participating.</p>
+      <p style="margin-top:18px;">
+        <strong>Math accuracy (main task):</strong> ${finalMathAcc}%
+      </p>
+      <p style="color:#888;font-size:0.95em;margin-top:16px;">
+        Saving your data&hellip;
+      </p>
+    </div>`;
+  },
+  choices:        'NO_KEYS',
+  trial_duration: 2500
+});
+
+
+// ================================================================
+//  SAVE VIA DATAPIPE → OSF
+// ================================================================
+timeline.push({
+  type:        jsPsychPipe,
+  action:      'save',
+  experiment_id: PIPE_ID,
+  filename:    filename,
+  data_string: () => jsPsych.data.get().csv()
+});
+
+
+// ================================================================
+//  RUN
+// ================================================================
+jsPsych.run(timeline);
+</script>
+</body>
+</html>
