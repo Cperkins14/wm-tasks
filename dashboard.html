@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WM Results Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f3ef; --surface: #fcfcfb; --surface-2: #f0efea; --line: #e2e0d8;
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #85837c;
+    --accent: #2a78d6; --accent-soft: rgba(42,120,214,.12);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6;
+    --good: #1e7a3c; --good-bg: #e6f3ea; --warn: #9a5b00; --warn-bg: #fdf1dc; --bad: #b3261e; --bad-bg: #fbe6e4;
+    --grid: #ebe9e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --line: #33332f;
+      --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,.18);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9;
+      --good: #6fcf8f; --good-bg: #1d3325; --warn: #f0b860; --warn-bg: #3a2c12; --bad: #f08a80; --bad-bg: #3d1e1b;
+      --grid: #2a2a27;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --line: #33332f;
+    --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,.18);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9;
+    --good: #6fcf8f; --good-bg: #1d3325; --warn: #f0b860; --warn-bg: #3a2c12; --bad: #f08a80; --bad-bg: #3d1e1b;
+    --grid: #2a2a27;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 22px 16px 0; max-width: 1180px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 1.45rem; letter-spacing: -.01em; }
+  header p { margin: 2px 0 0; color: var(--ink-2); }
+  nav { max-width: 1180px; margin: 16px auto 0; padding: 0 16px; display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; font: inherit;
+               color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+  nav button.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+  .tab { display: none; } .tab.active { display: block; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+  .card h2 { margin: 0 0 2px; font-size: 1.02rem; }
+  .card .sub { margin: 0 0 14px; color: var(--ink-2); font-size: .9rem; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center; background: var(--surface); transition: .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop b { display: block; font-size: 1.05rem; margin-bottom: 4px; }
+  .drop p { margin: 4px 0; color: var(--ink-2); }
+  .btn { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { filter: brightness(.97); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .stat .v { font-size: 1.7rem; font-weight: 650; letter-spacing: -.02em; }
+  .stat .l { color: var(--ink-2); font-size: .85rem; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { color: var(--ink-2); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; cursor: pointer; user-select: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: var(--surface-2); }
+  .cell { display: inline-block; min-width: 64px; padding: 3px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .cell.ok { background: var(--good-bg); color: var(--good); }
+  .cell.flag { background: var(--warn-bg); color: var(--warn); }
+  .cell.none { color: var(--ink-3); }
+  .tag { display: inline-block; font-size: .75rem; padding: 1px 7px; border-radius: 10px; margin-right: 4px; }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
+  .tag.bad { background: var(--bad-bg); color: var(--bad); }
+  .tag.muted { background: var(--surface-2); color: var(--ink-2); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 18px; }
+  .chartbox { position: relative; height: 240px; }
+  .empty { text-align: center; color: var(--ink-2); padding: 40px 10px; }
+  .note { font-size: .85rem; color: var(--ink-2); }
+  label.chk { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: .9rem; cursor: pointer; }
+  input[type=text], textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); width: 100%; }
+  textarea { min-height: 120px; resize: vertical; }
+  .linklist { display: grid; gap: 8px; margin-top: 14px; }
+  .linkrow { display: flex; gap: 10px; align-items: center; background: var(--surface-2); padding: 8px 12px; border-radius: 8px; flex-wrap: wrap; }
+  .linkrow code { flex: 1; min-width: 200px; overflow-wrap: anywhere; font-size: .85rem; }
+  .filelog { max-height: 220px; overflow: auto; font-size: .85rem; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .85rem; color: var(--ink-2); margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Working memory tasks: results</h1>
+  <p>Drop in the data from OSF and everything gets scored here. Nothing is uploaded anywhere; it all runs in your browser.</p>
+</header>
+<nav id="nav">
+  <button data-tab="load" class="active">1. Load data</button>
+  <button data-tab="overview">2. Who's done what</button>
+  <button data-tab="scores">3. Scores table</button>
+  <button data-tab="charts">4. Charts</button>
+  <button data-tab="send">Send tasks</button>
+</nav>
+<main>
+
+<!-- LOAD -->
+<section class="tab active" id="tab-load">
+  <div class="drop" id="drop">
+    <b>Drop the OSF zip (or a bunch of CSVs) here</b>
+    <p>On OSF: open the data folder, click "Download as zip", then drag that zip right onto this box.</p>
+    <div class="row" style="justify-content:center;margin-top:12px;">
+      <label class="btn primary">Choose files<input type="file" id="pick" multiple accept=".csv,.zip" hidden></label>
+      <label class="btn">Choose a folder<input type="file" id="pickdir" webkitdirectory hidden></label>
+      <button class="btn" id="clear">Clear</button>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px;" id="loadlog-card" hidden>
+    <h2>Files read</h2>
+    <p class="sub" id="loadsum"></p>
+    <div class="filelog tablewrap"><table id="filelog"><thead><tr><th>File</th><th>Task</th><th>ID</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>How scoring works</h2>
+    <p class="note" style="margin:0">
+      <b>Complex spans</b> (OSpan, SymSpan, RSpan, RotSpan): <b>partial score</b> = total items recalled in the right position, across all main sets (the usual primary DV).
+      <b>Absolute score</b> = sum of set sizes for sets recalled perfectly (Unsworth et al., 2005). <b>Perfect sets</b> = how many sets were fully right
+      (this is what the tasks label "absolute_span_score" in the raw file). <b>Processing accuracy</b> = % of main-task math / sentence / symmetry / rotation trials correct; below 85% gets flagged.<br>
+      <b>Backward digit span</b>: <b>span</b> = longest length with at least 1 of 2 trials right; <b>trials correct</b> out of 16 main trials (the 2 practice trials are dropped, including in older files where they were mixed in).<br>
+      If someone did the same task twice, the <b>first</b> attempt is used and the repeat is flagged. IDs like 999 or anything starting with "test" are treated as test runs.
+    </p>
+  </div>
+</section>
+
+<!-- OVERVIEW -->
+<section class="tab" id="tab-overview">
+  <div class="stats" id="stats"></div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div><h2>Completion by participant</h2><p class="sub">Primary score in each cell. Hover a cell for details.</p></div>
+      <label class="chk"><input type="checkbox" id="showtest"> show test IDs</label>
+    </div>
+    <div class="tablewrap"><table id="matrix"></table></div>
+    <div class="legend" style="margin-top:10px;">
+      <span><span class="cell ok">score</span> done</span>
+      <span><span class="cell flag">score ⚑</span> done, flagged (low processing accuracy or repeat)</span>
+      <span><span class="cell none">–</span> not done yet</span>
+    </div>
+  </div>
+</section>
+
+<!-- SCORES -->
+<section class="tab" id="tab-scores">
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div><h2>All sessions</h2><p class="sub">One row per participant per task. Click a column to sort.</p></div>
+      <div class="row">
+        <select id="taskfilter"><option value="">All tasks</option></select>
+        <button class="btn" id="dl-long">Download long CSV</button>
+        <button class="btn primary" id="dl-wide">Download wide CSV (1 row/person)</button>
+      </div>
+    </div>
+    <div class="tablewrap" style="max-height:560px;"><table id="scoretable"></table></div>
+    <p class="note" style="margin-top:10px;">The wide CSV is ready for R / SPSS: one row per participant, task-prefixed columns, test IDs and repeat attempts left out.</p>
+  </div>
+</section>
+
+<!-- CHARTS -->
+<section class="tab" id="tab-charts">
+  <div class="card">
+    <h2>Score distributions</h2>
+    <p class="sub">Each dot is one person, as % of the max possible score. Hover for details. Highlight someone:
+      <select id="hl"><option value="">nobody</option></select></p>
+    <div class="chartbox" style="height:300px;"><canvas id="c-dist"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Recall accuracy by set size</h2>
+    <p class="sub">Thick line = group mean, thin lines = individuals. Accuracy should drop as sets get bigger; if it doesn't, something's off.</p>
+    <div class="grid2" id="setsize-grid"></div>
+  </div>
+  <div class="card">
+    <h2>Do the tasks hang together?</h2>
+    <p class="sub">Pearson r between primary scores, with n in brackets. With a pilot-sized sample treat these as a sanity check, not a result.</p>
+    <div class="tablewrap"><table id="cortable"></table></div>
+  </div>
+</section>
+
+<!-- SEND -->
+<section class="tab" id="tab-send">
+  <div class="card">
+    <h2>Make personal task links</h2>
+    <p class="sub">Each RA gets one link. Their ID is built in, so nobody has to type it (and nobody can typo it).</p>
+    <label class="note" for="baseurl">Where the tasks live (your GitHub Pages address)</label>
+    <input type="text" id="baseurl" placeholder="https://yourlab.github.io/wm-tasks/">
+    <div style="height:12px"></div>
+    <label class="note" for="ids">IDs, one per line (e.g. RA01, RA02... or initials)</label>
+    <textarea id="ids" placeholder="RA01&#10;RA02&#10;RA03"></textarea>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn primary" id="mklinks">Make links</button>
+      <button class="btn" id="copyall">Copy all as a list</button>
+    </div>
+    <div class="linklist" id="links"></div>
+  </div>
+  <div class="card">
+    <h2>Message to send with it</h2>
+    <p class="sub">Edit as you like. <code>{link}</code> and <code>{id}</code> get filled in per person when you click "Copy message".</p>
+    <textarea id="msg" style="min-height:190px;">hi! here's your link for the working memory tasks we're piloting:
+{link}
+
+your ID ({id}) is already built into the link, so just open it and go. there are 5 short tasks, do them in order. a few things:
+- use a laptop with a keyboard, not your phone
+- somewhere quiet, close other tabs
+- don't refresh mid-task (data saves at the very end of each one)
+- if anything looks weird or breaks, screenshot it and send it to me
+
+thank you!!</textarea>
+  </div>
+</section>
+</main>
+
+<script>
+// ---------------------------------------------------------------- config
+const TASKS = ['OSpan', 'SymSpan', 'RSpan', 'RotSpan', 'DigitSpan'];
+const TASK_LABEL = { OSpan: 'Operation span', SymSpan: 'Symmetry span', RSpan: 'Reading span', RotSpan: 'Rotation span', DigitSpan: 'Backward digit span' };
+const PROC = { OSpan: ['math_main', 'math_correct'], SymSpan: ['symm_main', 'symm_correct'], RSpan: ['sent_main', 'sent_correct'], RotSpan: ['rot_main', 'rot_correct'] };
+const DIGIT_MAIN_TRIALS = 16;
+const PROC_CRITERION = 85;
+const isTestId = id => /^(9{3,}|test|noid$|typed_id$)/i.test(String(id || ''));
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const TASK_COLOR = { OSpan: '--s1', SymSpan: '--s2', RSpan: '--s3', RotSpan: '--s4', DigitSpan: '--s5' };
+
+// ---------------------------------------------------------------- state
+let sessions = [];          // scored sessions
+let fileLog = [];
+const seenFiles = new Set();
+
+// ---------------------------------------------------------------- helpers
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const truthy = v => v === true || String(v).toLowerCase() === 'true' || v === 1 || v === '1';
+const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const round = (v, d = 0) => v == null ? null : Math.round(v * 10 ** d) / 10 ** d;
+
+function detectTask(rows, cols) {
+  const tn = rows.find(r => r.task_name)?.task_name;
+  if (tn && TASKS.includes(tn)) return tn;
+  if (cols.includes('target_backward') || cols.includes('backward_span_score')) return 'DigitSpan';
+  if (cols.includes('rot_correct')) return 'RotSpan';
+  if (cols.includes('symm_correct')) return 'SymSpan';
+  if (cols.includes('sent_correct')) return 'RSpan';
+  if (cols.includes('math_correct')) return 'OSpan';
+  return null;
+}
+
+function scoreFile(name, text) {
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+  const rows = parsed.data, cols = parsed.meta.fields || [];
+  const task = detectTask(rows, cols);
+  if (!task) return { error: 'not a WM task file' };
+  const pid = (rows.find(r => r.participant_id)?.participant_id || '').trim() || '(no ID)';
+  const date = rows.find(r => r.session_date)?.session_date || (name.match(/\d{4}-\d{2}-\d{2}/) || [''])[0];
+  const lastT = num(rows[rows.length - 1]?.time_elapsed);
+  const s = { file: name, task, pid, date, minutes: lastT ? round(lastT / 60000, 1) : null, flags: [] };
+
+  if (task === 'DigitSpan') {
+    let rec = rows.filter(r => r.task === 'recall_main' && r.span_length !== '' && r.span_length != null);
+    if (rec.length > DIGIT_MAIN_TRIALS) rec = rec.slice(rec.length - DIGIT_MAIN_TRIALS);   // older files: practice mixed in first
+    if (!rec.length) return { error: 'no main trials (incomplete?)' };
+    const byLen = {};
+    rec.forEach(r => { const L = num(r.span_length); (byLen[L] ||= []).push(truthy(r.all_correct)); });
+    let span = 0; Object.keys(byLen).map(Number).sort((a, b) => a - b).forEach(L => { if (byLen[L].some(Boolean)) span = L; });
+    s.span = span;
+    s.trials_correct = rec.filter(r => truthy(r.all_correct)).length;
+    s.n_trials = rec.length;
+    s.primary = span; s.primary_max = 9; s.primary_label = 'span';
+    s.by_size = Object.keys(byLen).map(Number).sort((a, b) => a - b).map(L => ({ size: L, acc: round(100 * mean(byLen[L].map(Number))) }));
+    if (rec.length < DIGIT_MAIN_TRIALS) s.flags.push('incomplete');
+  } else {
+    const rec = rows.filter(r => r.task === 'recall_main');
+    if (!rec.length) return { error: 'no main sets (incomplete?)' };
+    let partial = 0, maxp = 0, perfect = 0, absolute = 0; const bySize = {};
+    rec.forEach(r => {
+      const sz = num(r.set_size), p = num(r.partial_correct) || 0, a = num(r.absolute_correct) || 0;
+      partial += p; maxp += sz; perfect += a; if (a === 1) absolute += sz;
+      (bySize[sz] ||= []).push(p / sz);
+    });
+    const [ptask, pcol] = PROC[task];
+    const proc = rows.filter(r => r.task === ptask);
+    s.partial = partial; s.partial_max = maxp; s.absolute = absolute; s.perfect_sets = perfect; s.n_sets = rec.length;
+    s.proc_acc = proc.length ? round(100 * proc.filter(r => truthy(r[pcol])).length / proc.length) : null;
+    s.proc_timeouts = proc.filter(r => truthy(r.timed_out)).length;
+    s.primary = partial; s.primary_max = maxp; s.primary_label = 'partial';
+    s.by_size = Object.keys(bySize).map(Number).sort((a, b) => a - b).map(k => ({ size: k, acc: round(100 * mean(bySize[k])) }));
+    if (s.proc_acc != null && s.proc_acc < PROC_CRITERION) s.flags.push('proc < 85%');
+    const expected = { OSpan: 15, RSpan: 15, SymSpan: 12, RotSpan: 12 }[task];
+    if (rec.length < expected) s.flags.push('incomplete');
+  }
+  s.pct = s.primary_max ? round(100 * s.primary / s.primary_max) : null;
+  s.test = isTestId(pid);
+  return { session: s };
+}
+
+// mark repeats: same pid + task -> keep earliest (date, then filename order of load)
+function markRepeats() {
+  const groups = {};
+  sessions.forEach(s => { s.repeat = false; s.flags = s.flags.filter(f => f !== 'repeat'); (groups[s.pid + '|' + s.task] ||= []).push(s); });
+  Object.values(groups).forEach(g => {
+    g.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.order - b.order);
+    g.slice(1).forEach(s => { s.repeat = true; s.flags.push('repeat'); });
+  });
+}
+
+// ---------------------------------------------------------------- loading
+async function handleFiles(fileList) {
+  const items = [];
+  for (const f of fileList) {
+    if (/\.zip$/i.test(f.name)) {
+      try {
+        const zip = await JSZip.loadAsync(f);
+        for (const entry of Object.values(zip.files)) {
+          if (!entry.dir && /\.csv$/i.test(entry.name) && !/__MACOSX/.test(entry.name))
+            items.push({ name: entry.name.split('/').pop(), text: await entry.async('string') });
+        }
+      } catch (e) { fileLog.push({ name: f.name, status: 'could not open zip' }); }
+    } else if (/\.csv$/i.test(f.name)) {
+      items.push({ name: f.name, text: await f.text() });
+    }
+  }
+  for (const it of items) {
+    if (seenFiles.has(it.name)) { fileLog.push({ name: it.name, status: 'already loaded, skipped' }); continue; }
+    seenFiles.add(it.name);
+    let r; try { r = scoreFile(it.name, it.text); } catch (e) { r = { error: 'could not read' }; }
+    if (r.error) { fileLog.push({ name: it.name, status: r.error }); continue; }
+    r.session.order = sessions.length;
+    sessions.push(r.session);
+    fileLog.push({ name: it.name, task: r.session.task, pid: r.session.pid, status: 'ok' });
+  }
+  markRepeats();
+  renderAll();
+  if (sessions.length) switchTab('overview');
+}
+
+const drop = document.getElementById('drop');
+['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => handleFiles(ev.dataTransfer.files));
+document.getElementById('pick').onchange = e => handleFiles(e.target.files);
+document.getElementById('pickdir').onchange = e => handleFiles(e.target.files);
+document.getElementById('clear').onclick = () => { sessions = []; fileLog = []; seenFiles.clear(); renderAll(); };
+
+// ---------------------------------------------------------------- tabs
+function switchTab(name) {
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+  if (name === 'charts') renderCharts();
+}
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+// ---------------------------------------------------------------- render
+const showTest = () => document.getElementById('showtest').checked;
+const usable = () => sessions.filter(s => !s.repeat && (showTest() || !s.test));
+const people = list => [...new Set(list.map(s => s.pid))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+const fmtPrimary = s => s.task === 'DigitSpan' ? `${s.span}` : `${s.partial}/${s.partial_max}`;
+
+function renderAll() { renderLog(); renderOverview(); renderScores(); renderHighlight(); if (document.getElementById('tab-charts').classList.contains('active')) renderCharts(); }
+
+function renderLog() {
+  const card = document.getElementById('loadlog-card');
+  card.hidden = !fileLog.length;
+  const ok = fileLog.filter(f => f.status === 'ok').length;
+  document.getElementById('loadsum').textContent = `${ok} task files scored, ${fileLog.length - ok} skipped.`;
+  document.querySelector('#filelog tbody').innerHTML = fileLog.map(f =>
+    `<tr><td>${esc(f.name)}</td><td>${esc(f.task || '')}</td><td>${esc(f.pid || '')}</td>
+     <td>${f.status === 'ok' ? 'ok' : `<span class="tag warn">${esc(f.status)}</span>`}</td></tr>`).join('');
+}
+
+function renderOverview() {
+  const list = sessions.filter(s => showTest() || !s.test);
+  const real = sessions.filter(s => !s.test && !s.repeat);
+  const ppl = people(real);
+  const full = ppl.filter(p => TASKS.every(t => real.some(s => s.pid === p && s.task === t))).length;
+  const flagged = real.filter(s => s.flags.length).length;
+  document.getElementById('stats').innerHTML = [
+    [ppl.length, 'participants'], [real.length, 'task sessions'], [full, 'finished all 5'], [flagged, 'sessions flagged']
+  ].map(([v, l]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  const pids = people(list);
+  if (!pids.length) { document.getElementById('matrix').innerHTML = `<tr><td class="empty">No data loaded yet. Start on the "Load data" tab.</td></tr>`; return; }
+  let h = `<thead><tr><th>ID</th>${TASKS.map(t => `<th>${t}</th>`).join('')}<th class="num">done</th></tr></thead><tbody>`;
+  pids.forEach(p => {
+    let n = 0;
+    h += `<tr><td><b>${esc(p)}</b>${list.some(s => s.pid === p && s.test) ? ' <span class="tag muted">test</span>' : ''}</td>`;
+    TASKS.forEach(t => {
+      const all = list.filter(s => s.pid === p && s.task === t);
+      const s = all.find(x => !x.repeat);
+      if (!s) { h += `<td><span class="cell none">–</span></td>`; return; }
+      n++;
+      const flags = [...s.flags, ...(all.length > 1 ? [`${all.length - 1} repeat file(s)`] : [])].filter(f => f !== 'repeat');
+      const tip = `${TASK_LABEL[t]} · ${s.date || 'no date'}${s.proc_acc != null ? ` · processing ${s.proc_acc}%` : ''}${s.minutes ? ` · ${s.minutes} min` : ''}${flags.length ? ' · ⚑ ' + flags.join(', ') : ''}`;
+      h += `<td><span class="cell ${flags.length ? 'flag' : 'ok'}" title="${esc(tip)}">${fmtPrimary(s)}${flags.length ? ' ⚑' : ''}</span></td>`;
+    });
+    h += `<td class="num">${n}/5</td></tr>`;
+  });
+  document.getElementById('matrix').innerHTML = h + '</tbody>';
+}
+document.getElementById('showtest').onchange = renderAll;
+
+// scores table
+const COLS = [
+  ['pid', 'ID'], ['task', 'Task'], ['date', 'Date'], ['primary', 'Primary', 1], ['pct', '% of max', 1],
+  ['absolute', 'Absolute', 1], ['perfect_sets', 'Perfect sets', 1], ['proc_acc', 'Processing %', 1], ['proc_timeouts', 'Timeouts', 1],
+  ['trials_correct', 'Digit trials ✓', 1], ['minutes', 'Minutes', 1], ['flags', 'Flags'], ['file', 'File']
+];
+let sortKey = 'pid', sortDir = 1;
+const taskSel = document.getElementById('taskfilter');
+TASKS.forEach(t => taskSel.innerHTML += `<option>${t}</option>`);
+taskSel.onchange = renderScores;
+
+function renderScores() {
+  let list = sessions.filter(s => !taskSel.value || s.task === taskSel.value);
+  list = [...list].sort((a, b) => {
+    const x = a[sortKey], y = b[sortKey];
+    if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sortDir;
+  });
+  let h = `<thead><tr>${COLS.map(([k, l, n]) => `<th data-k="${k}" class="${n ? 'num' : ''}">${l}${sortKey === k ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead><tbody>`;
+  if (!list.length) h += `<tr><td colspan="${COLS.length}" class="empty">No data loaded yet.</td></tr>`;
+  list.forEach(s => {
+    h += '<tr>' + COLS.map(([k, , n]) => {
+      let v = s[k];
+      if (k === 'primary') v = fmtPrimary(s);
+      if (k === 'flags') v = [...(s.test ? ['<span class="tag muted">test</span>'] : []), ...s.flags.map(f => `<span class="tag ${f === 'repeat' ? 'muted' : 'warn'}">${esc(f)}</span>`)].join('');
+      else v = esc(v ?? '');
+      if (k === 'proc_acc' && s.proc_acc != null && s.proc_acc < PROC_CRITERION) v = `<span style="color:var(--bad);font-weight:600">${v}</span>`;
+      return `<td class="${n ? 'num' : ''}">${v}</td>`;
+    }).join('') + '</tr>';
+  });
+  const tbl = document.getElementById('scoretable');
+  tbl.innerHTML = h + '</tbody>';
+  tbl.querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderScores(); });
+}
+
+// downloads
+function download(name, rows) {
+  const blob = new Blob([Papa.unparse(rows)], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+}
+const today = () => new Date().toISOString().slice(0, 10);
+document.getElementById('dl-long').onclick = () => download(`wm_scores_long_${today()}.csv`, sessions.map(s => ({
+  participant_id: s.pid, task: s.task, session_date: s.date, is_test_id: s.test, is_repeat: s.repeat,
+  partial_score: s.partial ?? '', partial_max: s.partial_max ?? '', absolute_score: s.absolute ?? '', perfect_sets: s.perfect_sets ?? '',
+  processing_acc: s.proc_acc ?? '', processing_timeouts: s.proc_timeouts ?? '',
+  backward_span: s.span ?? '', digit_trials_correct: s.trials_correct ?? '', minutes: s.minutes ?? '',
+  flags: s.flags.join('; '), file: s.file
+})));
+document.getElementById('dl-wide').onclick = () => {
+  const real = sessions.filter(s => !s.test && !s.repeat);
+  const rows = people(real).map(p => {
+    const r = { participant_id: p };
+    TASKS.forEach(t => {
+      const s = real.find(x => x.pid === p && x.task === t);
+      const k = t.toLowerCase();
+      if (t === 'DigitSpan') { r[`${k}_span`] = s?.span ?? ''; r[`${k}_trials_correct`] = s?.trials_correct ?? ''; }
+      else {
+        r[`${k}_partial`] = s?.partial ?? ''; r[`${k}_absolute`] = s?.absolute ?? '';
+        r[`${k}_proc_acc`] = s?.proc_acc ?? ''; r[`${k}_proc_ok`] = s ? (s.proc_acc >= PROC_CRITERION ? 1 : 0) : '';
+      }
+    });
+    return r;
+  });
+  download(`wm_scores_wide_${today()}.csv`, rows);
+};
+
+// ---------------------------------------------------------------- charts
+const charts = {};
+function mk(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), cfg); }
+const hlSel = document.getElementById('hl');
+hlSel.onchange = renderCharts;
+function renderHighlight() {
+  const cur = hlSel.value;
+  hlSel.innerHTML = '<option value="">nobody</option>' + people(usable()).map(p => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('');
+}
+function baseOpts() {
+  Chart.defaults.color = css('--ink-2'); Chart.defaults.borderColor = css('--grid');
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+}
+function alpha(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+function renderCharts() {
+  baseOpts();
+  const list = usable(); const hl = hlSel.value;
+  // distributions: x = task index + jitter, y = % of max
+  const ds = TASKS.map((t, i) => {
+    const col = css(TASK_COLOR[t]);
+    const pts = list.filter(s => s.task === t).map((s, j, arr) => ({ x: i + (arr.length > 1 ? (j / (arr.length - 1) - .5) * .4 : 0), y: s.pct, s }));
+    return {
+      label: t, data: pts,
+      backgroundColor: pts.map(p => !hl || p.s.pid === hl ? col : alpha(col, .35)),
+      borderColor: css('--surface'), borderWidth: 2,
+      pointRadius: pts.map(p => p.s.pid === hl ? 9 : 6), pointHoverRadius: 9,
+      pointStyle: pts.map(p => p.s.flags.length ? 'triangle' : 'circle'),
+    };
+  });
+  mk('c-dist', {
+    type: 'scatter', data: { datasets: ds },
+    options: {
+      maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: c => { const s = c.raw.s; return `${s.pid}: ${fmtPrimary(s)} (${s.pct}%)${s.proc_acc != null ? `, processing ${s.proc_acc}%` : ''}${s.flags.length ? ' ⚑ ' + s.flags.join(', ') : ''}`; } } } },
+      scales: {
+        x: { min: -.6, max: TASKS.length - .4, grid: { display: false }, ticks: { stepSize: 1, callback: v => TASKS[v] ?? '' } },
+        y: { min: 0, max: 100, title: { display: true, text: '% of max score' }, ticks: { callback: v => v + '%' } }
+      }
+    }
+  });
+
+  // set size
+  const grid = document.getElementById('setsize-grid');
+  grid.innerHTML = TASKS.map(t => `<div><div class="note" style="font-weight:600;color:var(--ink);margin-bottom:4px;">${TASK_LABEL[t]}</div><div class="chartbox"><canvas id="ss-${t}"></canvas></div></div>`).join('');
+  TASKS.forEach(t => {
+    const col = css(TASK_COLOR[t]);
+    const ss = list.filter(s => s.task === t);
+    const sizes = [...new Set(ss.flatMap(s => s.by_size.map(b => b.size)))].sort((a, b) => a - b);
+    const indiv = ss.map(s => ({
+      label: s.pid, data: sizes.map(z => s.by_size.find(b => b.size === z)?.acc ?? null),
+      borderColor: s.pid === hl ? css('--ink') : alpha(col, .3), borderWidth: s.pid === hl ? 2 : 1, pointRadius: 0, pointHoverRadius: 4, tension: 0,
+    }));
+    const m = { label: 'Group mean', data: sizes.map(z => round(mean(ss.map(s => s.by_size.find(b => b.size === z)?.acc).filter(v => v != null)))),
+      borderColor: col, backgroundColor: col, borderWidth: 3, pointRadius: 4, tension: 0 };
+    mk('ss-' + t, {
+      type: 'line', data: { labels: sizes, datasets: ss.length ? [...indiv, m] : [] },
+      options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'nearest', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y}%` } } },
+        scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } },
+                  x: { title: { display: true, text: t === 'DigitSpan' ? 'sequence length' : 'set size' }, grid: { display: false } } } }
+    });
+  });
+
+  // correlations
+  const ppl = people(list);
+  const val = (p, t) => list.find(s => s.pid === p && s.task === t)?.primary ?? null;
+  function corr(a, b) {
+    const pairs = ppl.map(p => [val(p, a), val(p, b)]).filter(([x, y]) => x != null && y != null);
+    const n = pairs.length; if (n < 3) return { r: null, n };
+    const mx = mean(pairs.map(q => q[0])), my = mean(pairs.map(q => q[1]));
+    let sxy = 0, sxx = 0, syy = 0; pairs.forEach(([x, y]) => { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; syy += (y - my) ** 2; });
+    return { r: sxx && syy ? sxy / Math.sqrt(sxx * syy) : null, n };
+  }
+  let h = `<thead><tr><th></th>${TASKS.map(t => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>`;
+  TASKS.forEach((a, i) => {
+    h += `<tr><td><b>${a}</b></td>` + TASKS.map((b, j) => {
+      if (j >= i) return `<td class="num" style="color:var(--ink-3)">${j === i ? '–' : ''}</td>`;
+      const { r, n } = corr(a, b);
+      return `<td class="num">${r == null ? `<span style="color:var(--ink-3)">n=${n}</span>` : `${r.toFixed(2)} <span style="color:var(--ink-3)">[${n}]</span>`}</td>`;
+    }).join('') + '</tr>';
+  });
+  document.getElementById('cortable').innerHTML = h + '</tbody>';
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (document.getElementById('tab-charts').classList.contains('active')) renderCharts(); });
+
+// ---------------------------------------------------------------- send tasks
+const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+const baseEl = document.getElementById('baseurl'), idsEl = document.getElementById('ids'), msgEl = document.getElementById('msg');
+baseEl.value = LS('wm_base') || (location.protocol.startsWith('http') ? location.href.replace(/[^/]*$/, '') : '');
+idsEl.value = LS('wm_ids') || '';
+if (LS('wm_msg')) msgEl.value = LS('wm_msg');
+[baseEl, idsEl, msgEl].forEach(el => el.addEventListener('input', () => { LS('wm_base', baseEl.value); LS('wm_ids', idsEl.value); LS('wm_msg', msgEl.value); }));
+function linkFor(id) { let b = baseEl.value.trim(); if (b && !b.endsWith('/') && !/\.html$/.test(b)) b += '/'; return `${b}?pid=${encodeURIComponent(id)}`; }
+const idList = () => [...new Set(idsEl.value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean))];
+async function copy(text, btn) { try { await navigator.clipboard.writeText(text); const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1200); } catch (e) { prompt('Copy this:', text); } }
+document.getElementById('mklinks').onclick = () => {
+  const box = document.getElementById('links');
+  if (!baseEl.value.trim()) { box.innerHTML = `<p class="note">Add the task site address first.</p>`; return; }
+  box.innerHTML = idList().map(id => `<div class="linkrow"><b>${esc(id)}</b><code>${esc(linkFor(id))}</code>
+    <button class="btn" data-a="link" data-id="${esc(id)}">Copy link</button><button class="btn primary" data-a="msg" data-id="${esc(id)}">Copy message</button></div>`).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => {
+    const id = b.dataset.id, link = linkFor(id);
+    copy(b.dataset.a === 'link' ? link : msgEl.value.replaceAll('{link}', link).replaceAll('{id}', id), b);
+  });
+};
+document.getElementById('copyall').onclick = e => copy(idList().map(id => `${id}: ${linkFor(id)}`).join('\n'), e.target);
+
+renderAll();
+</script>
+</body>
+</html>

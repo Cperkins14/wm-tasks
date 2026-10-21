@@ -292,30 +292,55 @@ function startTimerBar() {
 // ================================================================
 const jsPsych = initJsPsych({
   on_finish: function () {
+    const last = jsPsych.data.get().last(1).values()[0] || {};
+    const ok = last.success === true;
+    const back = 'index.html' + (PID ? '?pid=' + encodeURIComponent(PID) : '');
+    if (ok) { try { localStorage.setItem('wm_done_' + PID + '_' + TASK_NAME, new Date().toISOString()); } catch (e) {} }
+    const backup = ok ? '' : `
+        <p style="color:#b71c1c;font-weight:bold;">Hmm, your data did not upload.</p>
+        <p>Please click below to download a copy and send it to the lab.</p>
+        <p><button id="dl-backup" style="font-size:1em;padding:10px 24px;cursor:pointer;">Download my data</button></p>`;
     document.body.innerHTML = `
-      <div style="font-family:Arial;text-align:center;padding:80px;">
-        <h2>Task complete</h2>
-        <p>Your data has been saved to OSF. Thank you for participating.</p>
-        <p>You may close this window.</p>
+      <div style="font-family:Arial;text-align:center;padding:80px;line-height:1.6;">
+        <h2>${TASK_NAME} complete</h2>
+        ${ok ? '<p>Your data has been saved. Thank you!</p>' : backup}
+        <p style="margin-top:24px;"><a href="${back}">&larr; Back to the task list</a></p>
       </div>`;
+    if (!ok) {
+      document.getElementById('dl-backup').onclick = () => {
+        const blob = new Blob([jsPsych.data.get().csv()], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = getFilename(); a.click();
+      };
+    }
   }
 });
 
 const timeline = [];
-const filename = jsPsych.randomization.randomID(10) + '.csv';
+// --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
+const TASK_NAME    = 'SymSpan';
+const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
+const SESSION_DATE = new Date().toISOString().slice(0, 10);
+let   PID          = URL_PID;
+const RAND_ID      = jsPsych.randomization.randomID(6);
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
+const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
 
 // ================================================================
 //  PARTICIPANT ID
 // ================================================================
-timeline.push({
+if (URL_PID) {
+  jsPsych.data.addProperties({ participant_id: URL_PID });
+} else timeline.push({
   type: jsPsychSurveyText,
   questions: [{
     prompt:   'Please enter your Participant ID:',
     name:     'pid',
     required: true
   }],
-  on_finish: d => jsPsych.data.addProperties({ participant_id: d.response.pid })
+  on_finish: d => { PID = String(d.response.pid).trim(); jsPsych.data.addProperties({ participant_id: PID }); }
 });
 
 
@@ -590,7 +615,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       on_start: trial => { trial.trial_duration = symmTimeLimit; },
       on_load:  startTimerBar,
       data: {
-        trial_type:   'symm_main',
+        task:         'symm_main',
         correct_key:  isSymm ? 'j' : 'f',
         is_symmetric: isSymm,
         set_index:    setIdx,
@@ -641,7 +666,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
     choices: 'NO_KEYS',
     on_load: () => setupSpatialRecall(tCells),
     data:    {
-      trial_type: 'recall_main',
+      task:       'recall_main',
       target:     JSON.stringify(tCells),
       set_size:   sz,
       set_index:  setIdx
@@ -656,8 +681,8 @@ MAIN_SIZES.forEach((sz, setIdx) => {
 timeline.push({
   type: jsPsychCallFunction,
   func: function () {
-    const recallTrials = jsPsych.data.get().filter({ trial_type: 'recall_main' }).values();
-    const symmTrials   = jsPsych.data.get().filter({ trial_type: 'symm_main'   }).values();
+    const recallTrials = jsPsych.data.get().filter({ task: 'recall_main' }).values();
+    const symmTrials   = jsPsych.data.get().filter({ task: 'symm_main'   }).values();
 
     finalPartial  = recallTrials.reduce((s, d) => s + (d.partial_correct  || 0), 0);
     finalAbsolute = recallTrials.reduce((s, d) => s + (d.absolute_correct || 0), 0);
@@ -701,7 +726,7 @@ timeline.push({
   type:          jsPsychPipe,
   action:        'save',
   experiment_id: PIPE_ID,
-  filename:      filename,
+  filename:      () => getFilename(),
   data_string:   () => jsPsych.data.get().csv()
 });
 

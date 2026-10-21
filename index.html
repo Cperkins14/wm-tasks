@@ -1,1 +1,118 @@
-<h1>Coming soon</h1> 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Working Memory Tasks</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1f2328; --muted: #6a6f76;
+    --line: #e3e1da; --accent: #2f5d8a; --done: #2e7d4f; --done-bg: #e9f4ed;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+  main { max-width: 680px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .who { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+         padding: 16px 18px; margin-bottom: 22px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .who label { font-weight: 600; }
+  .who input { font-size: 1rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; flex: 1; min-width: 160px; }
+  .who button { font-size: 1rem; padding: 8px 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+  .who .id { font-weight: 700; font-size: 1.1rem; }
+  .who .change { background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+  .tips { background: #fffaf0; border: 1px solid #f0e2c2; border-radius: 10px; padding: 14px 18px; margin-bottom: 22px; font-size: .95rem; }
+  .tips ul { margin: 6px 0 0; padding-left: 20px; }
+  .task { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; }
+  .num { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center;
+         font-weight: 700; color: var(--muted); flex-shrink: 0; }
+  .task.done { background: var(--done-bg); border-color: #cfe6d7; }
+  .task.done .num { background: var(--done); border-color: var(--done); color: #fff; }
+  .info { flex: 1; min-width: 0; }
+  .info b { display: block; }
+  .info span { color: var(--muted); font-size: .9rem; }
+  .go { text-decoration: none; background: var(--accent); color: #fff; padding: 8px 16px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+  .task.done .go { background: none; color: var(--done); border: 1px solid var(--done); }
+  .disabled .go { pointer-events: none; opacity: .4; }
+  .foot { color: var(--muted); font-size: .85rem; margin-top: 26px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Working memory tasks</h1>
+  <p class="sub">Five short tasks. Do them in order, one at a time.</p>
+
+  <div class="who" id="who"></div>
+
+  <div class="tips">
+    <b>Before you start</b>
+    <ul>
+      <li>Use a laptop or desktop with a keyboard (you'll need the F and J keys). No phones or tablets.</li>
+      <li>Find somewhere quiet and close other tabs and notifications.</li>
+      <li>Don't refresh or close the tab mid-task. Your data saves at the very end.</li>
+      <li>Take a short break between tasks if you want.</li>
+    </ul>
+  </div>
+
+  <div id="tasks"></div>
+
+  <p class="foot">Checkmarks are saved in this browser only. If something breaks, screenshot it and message the lab.</p>
+</main>
+
+<script>
+const TASKS = [
+  { name: 'OSpan',     file: 'ospan.html',               title: 'Operation Span',      desc: 'Math problems + remember letters' },
+  { name: 'SymSpan',   file: 'symspan.html',             title: 'Symmetry Span',       desc: 'Symmetry judgments + remember locations' },
+  { name: 'RSpan',     file: 'rspan.html',               title: 'Reading Span',        desc: 'Sentence judgments + remember letters' },
+  { name: 'RotSpan',   file: 'rotspan.html',             title: 'Rotation Span',       desc: 'Rotate arrows + remember letter orientation' },
+  { name: 'DigitSpan', file: 'digit-span-backward.html', title: 'Backward Digit Span', desc: 'Remember digits, enter them backwards' },
+];
+
+const params = new URLSearchParams(location.search);
+let pid = (params.get('pid') || '').trim();
+if (!pid) { try { pid = localStorage.getItem('wm_pid') || ''; } catch (e) {} }
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function isDone(t) { try { return !!localStorage.getItem('wm_done_' + pid + '_' + t.name); } catch (e) { return false; } }
+
+function renderWho() {
+  const box = document.getElementById('who');
+  if (pid) {
+    box.innerHTML = `<label>Your ID:</label> <span class="id">${esc(pid)}</span>
+      <button class="change" id="chg">not you?</button>`;
+    document.getElementById('chg').onclick = () => { pid = ''; save(); render(); };
+  } else {
+    box.innerHTML = `<label for="pid-in">Your participant ID</label>
+      <input id="pid-in" placeholder="e.g. RA01" autocomplete="off">
+      <button id="pid-go">Save</button>`;
+    const go = () => { const v = document.getElementById('pid-in').value.trim(); if (v) { pid = v; save(); render(); } };
+    document.getElementById('pid-go').onclick = go;
+    document.getElementById('pid-in').onkeydown = e => { if (e.key === 'Enter') go(); };
+  }
+}
+
+function save() { try { pid ? localStorage.setItem('wm_pid', pid) : localStorage.removeItem('wm_pid'); } catch (e) {} }
+
+function renderTasks() {
+  const wrap = document.getElementById('tasks');
+  wrap.className = pid ? '' : 'disabled';
+  wrap.innerHTML = TASKS.map((t, i) => {
+    const done = pid && isDone(t);
+    const href = `${t.file}?pid=${encodeURIComponent(pid)}`;
+    return `<div class="task ${done ? 'done' : ''}">
+      <div class="num">${done ? '&#10003;' : i + 1}</div>
+      <div class="info"><b>${t.title}</b><span>${t.desc}</span></div>
+      <a class="go" href="${href}">${done ? 'Done' : 'Start'}</a>
+    </div>`;
+  }).join('');
+}
+
+function render() { renderWho(); renderTasks(); }
+if (pid) save();
+render();
+</script>
+</body>
+</html>
