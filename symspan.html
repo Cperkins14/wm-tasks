@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <script src="eprime.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
@@ -26,9 +27,9 @@
     /* Symmetry pattern — 8×8 */
     .symm-grid { display: grid; grid-template-columns: repeat(8, 46px);
                  gap: 3px; margin: 18px auto; width: fit-content; }
-    .symm-cell { width: 46px; height: 46px; border: 1px solid #bbb; border-radius: 2px; }
+    .symm-cell { width: 46px; height: 46px; }
     .symm-cell.filled { background: #333; }
-    .symm-cell.empty  { background: #f0f0f0; }
+    .symm-cell.empty  { background: #ffffff; }
     .symm-keys { text-align: center; font-size: 1em; color: #666; margin-bottom: 10px; }
 
     /* Timer bar */
@@ -205,7 +206,7 @@ function recallGridHTML(n) {
   let html = `<div class="recall-wrap">
     <p class="recall-instr">
       Click the squares <strong>in the order they appeared</strong>
-      &nbsp;(${n} square${n > 1 ? 's' : ''} needed):
+      <br><span style="font-size:.85em;color:#666">Click Blank for any square you can't remember.</span>
     </p>
     <div class="recall-grid-4">`;
   for (let r = 0; r < 4; r++) {
@@ -217,11 +218,14 @@ function recallGridHTML(n) {
     <div class="recall-seq-spatial" id="recall-seq">&nbsp;</div>
     <div class="recall-actions">
       <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-blank"  id="rc-blank">Blank</button>
       <button class="btn-submit" id="rc-submit">Submit</button>
     </div>
   </div>`;
   return html;
 }
+
+const seqText = p => p.map(([row, col]) => row < 0 ? 'blank' : `R${row+1}C${col+1}`).join(' → ');
 
 /** Wire up recall grid click handlers */
 function setupSpatialRecall(targets) {
@@ -230,7 +234,7 @@ function setupSpatialRecall(targets) {
 
   document.querySelectorAll('.rc-cell').forEach(cell => {
     cell.addEventListener('click', function () {
-      if (picked.length < targets.length && !this.classList.contains('picked')) {
+      if (picked.length < 16 && !this.classList.contains('picked')) {
         const r = parseInt(this.dataset.r);
         const c = parseInt(this.dataset.c);
         picked.push([r, c]);
@@ -238,9 +242,16 @@ function setupSpatialRecall(targets) {
         this.textContent = picked.length;
         const seqEl = document.getElementById('recall-seq');
         if (seqEl) seqEl.textContent =
-          'Selected: ' + picked.map(([row, col]) => `R${row+1}C${col+1}`).join(' → ');
+          'Selected: ' + seqText(picked);
       }
     });
+  });
+
+  document.getElementById('rc-blank').addEventListener('click', () => {
+    if (picked.length < 16) {
+      picked.push([-1, -1]);
+      document.getElementById('recall-seq').textContent = 'Selected: ' + seqText(picked);
+    }
   });
 
   document.getElementById('rc-clear').addEventListener('click', () => {
@@ -317,13 +328,14 @@ const jsPsych = initJsPsych({
 });
 
 const timeline = [];
+const PROC = { field: 'symm_correct', answer: d => `<p class="ep-q">Is this picture symmetrical?</p>`, buttons: [['YES','j'],['NO','f']] };
 // --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
 const TASK_NAME    = 'SymSpan';
 const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
 const SESSION_DATE = new Date().toISOString().slice(0, 10);
 let   PID          = URL_PID;
 const RAND_ID      = jsPsych.randomization.randomID(6);
-jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE, task_version: EP.VERSION });
 const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
 const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
@@ -360,8 +372,7 @@ timeline.push({
       <strong>Symmetric</strong> — left and right halves are mirror images.<br>
       <strong>Not symmetric</strong> — left and right halves are different.
     </p>
-    <p><span class="key">F</span> = NOT symmetric &nbsp;&nbsp;
-       <span class="key">J</span> = Symmetric</p>
+    <p>Look at the picture, then <strong>click the mouse</strong>. Then click <strong>YES</strong> if it is symmetrical or <strong>NO</strong> if it is not.</p>
     <p>Try to be as <strong>fast and accurate</strong> as possible.
        You will complete ${SYMM_PRACTICE_N} practice patterns.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -373,14 +384,10 @@ for (let i = 0; i < SYMM_PRACTICE_N; i++) {
   const isSymm = Math.random() > 0.5;
   const pattern = makePattern(isSymm);
 
-  timeline.push({
+  timeline.push(EP.proc({
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: `
-      ${symmGridHTML(pattern)}
-      <p class="symm-keys">
-        <span class="key">F</span> NOT symmetric &nbsp;&nbsp;
-        <span class="key">J</span> Symmetric
-      </p>`,
+      ${symmGridHTML(pattern)}`,
     choices:  ['f', 'j'],
     data:     { trial_type: 'symm_practice', correct_key: isSymm ? 'j' : 'f', is_symmetric: isSymm },
     on_finish: function (d) {
@@ -390,7 +397,7 @@ for (let i = 0; i < SYMM_PRACTICE_N; i++) {
       if (d.symm_correct) practiceCorrect++;
       practiceRTs.push(d.rt);
     }
-  });
+  }, PROC));
 
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
@@ -424,7 +431,7 @@ timeline.push({
     return `<div class="instr">
       <h2>Symmetry Practice Complete</h2>${msg}
       <p>In the main task, each symmetry pattern will have a time limit
-         based on your practice speed. A timer bar will show how much time you have.</p>
+         based on your practice speed.</p>
       <br><p style="color:#888">Press any key to continue.</p>
     </div>`;
   },
@@ -520,15 +527,10 @@ timeline.push({
     const isSymm  = Math.random() > 0.5;
     const pattern = makePattern(isSymm);
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: `
-        ${symmGridHTML(pattern)}
-        <p class="symm-keys">
-          <span class="key">F</span> NOT symmetric &nbsp;&nbsp;
-          <span class="key">J</span> Symmetric
-        </p>
-        <div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`,
+        ${symmGridHTML(pattern)}`,
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = symmTimeLimit; },
       on_load:  startTimerBar,
@@ -539,14 +541,8 @@ timeline.push({
         d.symm_correct = lastSymmOK;
         d.timed_out    = lastSymmSlow;
       }
-    });
+    }, PROC));
 
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => symmFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
 
     const [cr, cc] = cells[i];
     timeline.push({
@@ -571,6 +567,7 @@ timeline.push({
     on_load: () => setupSpatialRecall(tCells),
     data:    { trial_type: 'recall_combined_practice', target: JSON.stringify(tCells) }
   });
+  timeline.push(EP.setFeedback('Symmetry'));
 });
 
 
@@ -601,16 +598,10 @@ MAIN_SIZES.forEach((sz, setIdx) => {
     const isSymm  = Math.random() > 0.5;
     const pattern = makePattern(isSymm);
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: `
-        <p class="progress-note">Set ${setIdx + 1} of 12 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
-        ${symmGridHTML(pattern)}
-        <p class="symm-keys">
-          <span class="key">F</span> NOT symmetric &nbsp;&nbsp;
-          <span class="key">J</span> Symmetric
-        </p>
-        <div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`,
+        ${symmGridHTML(pattern)}`,
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = symmTimeLimit; },
       on_load:  startTimerBar,
@@ -628,14 +619,8 @@ MAIN_SIZES.forEach((sz, setIdx) => {
         d.symm_correct = lastSymmOK;
         d.timed_out    = lastSymmSlow;
       }
-    });
+    }, PROC));
 
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => symmFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
 
     const [cr, cc] = cells[i];
     timeline.push({
@@ -672,6 +657,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       set_index:  setIdx
     }
   });
+  timeline.push(EP.setFeedback('Symmetry'));
 });
 
 

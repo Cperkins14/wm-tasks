@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <script src="eprime.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
@@ -86,6 +87,7 @@ const SPAN_LENGTHS = [2,2, 3,3, 4,4, 5,5, 6,6, 7,7, 8,8, 9,9];
 // --- STATE ---
 let finalSpanScore   = 0;  // longest length with ≥1/2 correct
 let finalTotalScore  = 0;  // total trials correct
+let stopped = false;   // E-Prime rule: stop once both trials at a length are wrong
 let lengthResults    = {}; // { 2: [true, false], 3: [...], ... }
 
 
@@ -133,9 +135,6 @@ function numpadHTML(seqLen) {
         Type the digits you heard <strong>BACKWARDS</strong>
         &nbsp;(last digit first).
       </p>
-      <p class="recall-instr" style="color:#1a237e;">
-        You heard <strong>${seqLen} digits</strong> — enter <strong>${seqLen} digits</strong> in reverse order.
-      </p>
       <div class="response-label">Your response:</div>
       <div class="response-display" id="resp-display">&nbsp;</div>
       ${pad}
@@ -154,7 +153,7 @@ function setupNumpad(target, seqLen) {
 
   document.querySelectorAll('.num-btn').forEach(btn => {
     btn.addEventListener('click', function () {
-      if (entered.length < seqLen) {
+      if (entered.length < 12) {
         const d = parseInt(this.dataset.digit);
         entered.push(d);
         this.classList.add('pressed');
@@ -228,7 +227,7 @@ const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || 
 const SESSION_DATE = new Date().toISOString().slice(0, 10);
 let   PID          = URL_PID;
 const RAND_ID      = jsPsych.randomization.randomID(6);
-jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE, task_version: 'stop-rule-v2' });
 const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
 const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
@@ -378,12 +377,13 @@ const totalTrials = SPAN_LENGTHS.length; // 16
 SPAN_LENGTHS.forEach((len, trialIdx) => {
   const seq     = makeDigitSequence(len);
   const seqCopy = [...seq];
+  const outer   = timeline;
+  { const timeline = [];
 
   // Ready / between-trial screen
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus:       `<div class="ready-box">
-                       <p class="progress-note">Trial ${trialIdx + 1} of ${totalTrials}</p>
                        <p style="color:#888;font-size:0.95em;margin-top:10px;">Get ready…</p>
                      </div>`,
     choices:        'NO_KEYS',
@@ -431,8 +431,11 @@ SPAN_LENGTHS.forEach((len, trialIdx) => {
     on_finish: function (d) {
       if (!lengthResults[len]) lengthResults[len] = [];
       lengthResults[len].push(d.all_correct);
+      if (lengthResults[len].length === 2 && !lengthResults[len].some(Boolean)) stopped = true;
     }
   });
+  outer.push({ timeline, conditional_function: () => !stopped });
+  }
 });
 
 
@@ -459,7 +462,7 @@ timeline.push({
     d.trial_type          = 'summary';
     d.backward_span_score = finalSpanScore;
     d.total_trials_correct = finalTotalScore;
-    d.total_trials        = SPAN_LENGTHS.length;
+    d.total_trials        = jsPsych.data.get().filter({ task: 'recall_main' }).count();
   }
 });
 

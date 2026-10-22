@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <script src="eprime.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
@@ -315,12 +316,13 @@ function recallHTML(n) {
     <div class="recall-wrap">
       <p class="recall-instr">
         Select the letters <strong>in the order they appeared</strong>
-        &nbsp;(${n} letter${n > 1 ? 's' : ''} needed):
+        <br><span style="font-size:.85em;color:#666">Click Blank for any letter you can't remember.</span>
       </p>
       <div class="recall-grid">${grid}</div>
       <div class="recall-seq" id="recall-seq">&nbsp;</div>
       <div class="recall-actions">
         <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-blank"  id="rc-blank">Blank</button>
         <button class="btn-submit" id="rc-submit">Submit</button>
       </div>
     </div>`;
@@ -331,13 +333,20 @@ function setupRecall(targets) {
 
   LETTERS.forEach(l => {
     document.getElementById(`rl-${l}`).addEventListener('click', function () {
-      if (picked.length < targets.length && !this.disabled) {
+      if (picked.length < LETTERS.length && !this.disabled) {
         picked.push(l);
         this.classList.add('picked');
         this.disabled = true;
         document.getElementById('recall-seq').textContent = picked.join('  ');
       }
     });
+  });
+
+  document.getElementById('rc-blank').addEventListener('click', () => {
+    if (picked.length < LETTERS.length) {
+      picked.push('_');
+      document.getElementById('recall-seq').textContent = picked.join('  ');
+    }
   });
 
   document.getElementById('rc-clear').addEventListener('click', () => {
@@ -369,14 +378,10 @@ function setupRecall(targets) {
 
 function sentenceTrialHTML(text, showTimer) {
   const timer = showTimer
-    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    ? ``
     : '';
   return `
     <div class="sentence-box">${text}</div>
-    <p class="sentence-keys">
-      <span class="key">F</span> Does NOT make sense &nbsp;&nbsp;
-      <span class="key">J</span> Makes sense
-    </p>
     ${timer}`;
 }
 
@@ -425,13 +430,14 @@ const jsPsych = initJsPsych({
 });
 
 const timeline = [];
+const PROC = { field: 'sent_correct', answer: d => `<p class="ep-q">Does the sentence make sense?</p>`, buttons: [['TRUE','j'],['FALSE','f']] };
 // --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
 const TASK_NAME    = 'RSpan';
 const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
 const SESSION_DATE = new Date().toISOString().slice(0, 10);
 let   PID          = URL_PID;
 const RAND_ID      = jsPsych.randomization.randomID(6);
-jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE, task_version: EP.VERSION });
 const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
 const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
@@ -464,8 +470,7 @@ timeline.push({
        <em>"The dog chased the cat around the yard."</em></p>
     <p>Example of a sentence that does NOT make sense:<br>
        <em>"The bicycle ate a large piece of pizza."</em></p>
-    <p><span class="key">F</span> = Does NOT make sense &nbsp;&nbsp;
-       <span class="key">J</span> = Makes sense</p>
+    <p>Read the sentence, then <strong>click the mouse</strong>. Then click <strong>TRUE</strong> if it makes sense or <strong>FALSE</strong> if it does not.</p>
     <p>Try to be as <strong>fast and accurate</strong> as possible.
        You will read 15 practice sentences.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -475,7 +480,7 @@ timeline.push({
 
 for (let i = 0; i < 15; i++) {
   const sent = nextSentence();
-  timeline.push({
+  timeline.push(EP.proc({
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: sentenceTrialHTML(sent.text, false),
     choices:  ['f', 'j'],
@@ -487,7 +492,7 @@ for (let i = 0; i < 15; i++) {
       if (d.sent_correct) practiceCorrect++;
       practiceRTs.push(d.rt);
     }
-  });
+  }, PROC));
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus:       () => sentFeedbackHTML(),
@@ -520,7 +525,7 @@ timeline.push({
     return `<div class="instr">
       <h2>Sentence Practice Complete</h2>${msg}
       <p>In the main task, each sentence will have a time limit based on your
-         practice speed. A timer bar will show how much time remains.</p>
+         practice speed.</p>
       <br><p style="color:#888">Press any key to continue.</p>
     </div>`;
   },
@@ -599,7 +604,7 @@ timeline.push({
     <h2>Part 3: Combined Practice</h2>
     <p>Now you will do both together: read a sentence and judge it,
        then a letter will appear — remember it.</p>
-    <p>After all items in a set, recall the letters <strong>in order</strong>.</p>
+    <p>After all items in a set, recall the letters <strong>in order</strong>. You will then see how you did on that set.</p>
     <p>The sentences have a <strong>time limit</strong> — answer quickly!
        You must maintain at least <strong>85% accuracy</strong> on the sentences.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -614,7 +619,7 @@ timeline.push({
   for (let i = 0; i < sz; i++) {
     const sent = nextSentence();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: sentenceTrialHTML(sent.text, true),
       choices:  ['f', 'j'],
@@ -627,14 +632,7 @@ timeline.push({
         d.sent_correct = lastSentOK;
         d.timed_out    = lastSentSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => sentFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -658,6 +656,7 @@ timeline.push({
     on_load: () => setupRecall(tLetters),
     data:    { trial_type: 'recall_combined_practice', target: tLetters.join('') }
   });
+  timeline.push(EP.setFeedback('Sentence'));
 });
 
 
@@ -687,10 +686,9 @@ MAIN_SIZES.forEach((sz, setIdx) => {
   for (let i = 0; i < sz; i++) {
     const sent = nextSentence();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: `
-        <p class="progress-note">Set ${setIdx + 1} of 15 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
         ${sentenceTrialHTML(sent.text, true)}`,
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = sentTimeLimit; },
@@ -711,14 +709,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
         d.sent_correct = lastSentOK;
         d.timed_out    = lastSentSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => sentFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -753,6 +744,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       set_index:  setIdx
     }
   });
+  timeline.push(EP.setFeedback('Sentence'));
 });
 
 

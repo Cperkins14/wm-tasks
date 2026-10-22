@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <script src="eprime.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
@@ -155,7 +156,7 @@ function arrowSVG(angleDeg, size = 110) {
 /** Build rotation trial HTML */
 function rotTrialHTML(prob, showTimer) {
   const timer = showTimer
-    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    ? ``
     : '';
   return `
     <div class="rot-trial">
@@ -166,10 +167,6 @@ function rotTrialHTML(prob, showTimer) {
         </div>
       </div>
       <p class="rotation-instruction">Rotate <strong>${prob.rotLabel}</strong></p>
-      <p class="rot-keys">
-        <span class="key">F</span> ← LEFT &nbsp;&nbsp;&nbsp;
-        <span class="key">J</span> RIGHT →
-      </p>
       ${timer}
     </div>`;
 }
@@ -303,13 +300,14 @@ const jsPsych = initJsPsych({
 });
 
 const timeline = [];
+const PROC = { field: 'rot_correct', answer: d => `<p class="ep-q">Which way does the arrow point now?</p>`, buttons: [['LEFT','f'],['RIGHT','j']] };
 // --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
 const TASK_NAME    = 'RotSpan';
 const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
 const SESSION_DATE = new Date().toISOString().slice(0, 10);
 let   PID          = URL_PID;
 const RAND_ID      = jsPsych.randomization.randomID(6);
-jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE, task_version: EP.VERSION });
 const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
 const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
@@ -341,8 +339,7 @@ timeline.push({
        like <strong>"Rotate 90° clockwise"</strong>.</p>
     <p>Mentally rotate the arrow by that amount and decide whether it would end up
        pointing to the <strong>LEFT</strong> or to the <strong>RIGHT</strong>.</p>
-    <p><span class="key">F</span> = LEFT &nbsp;&nbsp;
-       <span class="key">J</span> = RIGHT</p>
+    <p>Rotate the arrow in your head, then <strong>click the mouse</strong>. Then click <strong>LEFT</strong> or <strong>RIGHT</strong>.</p>
     <p>Try to be as <strong>fast and accurate</strong> as possible.
        You will complete 12 practice problems.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -352,7 +349,7 @@ timeline.push({
 
 for (let i = 0; i < 12; i++) {
   const prob = makeRotProblem();
-  timeline.push({
+  timeline.push(EP.proc({
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: rotTrialHTML(prob, false),
     choices:  ['f', 'j'],
@@ -364,7 +361,7 @@ for (let i = 0; i < 12; i++) {
       if (d.rot_correct) practiceOKCt++;
       practiceRTs.push(d.rt);
     }
-  });
+  }, PROC));
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus:       () => rotFeedbackHTML(),
@@ -394,7 +391,7 @@ timeline.push({
     return `<div class="instr">
       <h2>Rotation Practice Complete</h2>${msg}
       <p>In the main task, each rotation problem will have a time limit based on
-         your practice speed. A timer bar will show how much time you have.</p>
+         your practice speed.</p>
       <br><p style="color:#888">Press any key to continue.</p>
     </div>`;
   },
@@ -495,7 +492,7 @@ timeline.push({
   for (let i = 0; i < sz; i++) {
     const prob = makeRotProblem();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: rotTrialHTML(prob, true),
       choices:  ['f', 'j'],
@@ -508,14 +505,7 @@ timeline.push({
         d.rot_correct = lastRotOK;
         d.timed_out   = lastRotSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => rotFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -539,6 +529,7 @@ timeline.push({
     on_load: () => setupLetterRecall(tItems),
     data:    { trial_type: 'recall_combined_practice' }
   });
+  timeline.push(EP.setFeedback('Rotation'));
 });
 
 
@@ -568,10 +559,9 @@ MAIN_SIZES.forEach((sz, setIdx) => {
   for (let i = 0; i < sz; i++) {
     const prob = makeRotProblem();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: `
-        <p class="progress-note">Set ${setIdx + 1} of 12 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
         ${rotTrialHTML(prob, true)}`,
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = rotTimeLimit; },
@@ -593,14 +583,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
         d.rot_correct = lastRotOK;
         d.timed_out   = lastRotSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => rotFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -636,6 +619,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       set_index:  setIdx
     }
   });
+  timeline.push(EP.setFeedback('Rotation'));
 });
 
 

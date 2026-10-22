@@ -11,6 +11,7 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
   <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.4"></script>
+  <script src="eprime.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
 
   <style>
@@ -135,7 +136,7 @@ function makeMath() {
   }
   const s1 = op1 === '*' ? '×' : op1;
   const s2 = op2 === '*' ? '×' : op2;
-  return { text: `(${a} ${s1} ${b}) ${s2} ${c} = ${shown}`, correct };
+  return { text: `(${a} ${s1} ${b}) ${s2} ${c} = ?`, shown, correct };
 }
 
 function recallHTML(n) {
@@ -146,12 +147,13 @@ function recallHTML(n) {
     <div class="recall-wrap">
       <p class="recall-instr">
         Select the letters <strong>in the order they appeared</strong>
-        &nbsp;(${n} letter${n > 1 ? 's' : ''} needed):
+        <br><span style="font-size:.85em;color:#666">Click Blank for any letter you can't remember.</span>
       </p>
       <div class="recall-grid">${grid}</div>
       <div class="recall-seq" id="recall-seq">&nbsp;</div>
       <div class="recall-actions">
         <button class="btn-clear"  id="rc-clear">Clear</button>
+        <button class="btn-blank"  id="rc-blank">Blank</button>
         <button class="btn-submit" id="rc-submit">Submit</button>
       </div>
     </div>`;
@@ -162,13 +164,20 @@ function setupRecall(targets) {
 
   LETTERS.forEach(l => {
     document.getElementById(`rl-${l}`).addEventListener('click', function () {
-      if (picked.length < targets.length && !this.disabled) {
+      if (picked.length < LETTERS.length && !this.disabled) {
         picked.push(l);
         this.classList.add('picked');
         this.disabled = true;
         document.getElementById('recall-seq').textContent = picked.join('  ');
       }
     });
+  });
+
+  document.getElementById('rc-blank').addEventListener('click', () => {
+    if (picked.length < LETTERS.length) {
+      picked.push('_');
+      document.getElementById('recall-seq').textContent = picked.join('  ');
+    }
   });
 
   document.getElementById('rc-clear').addEventListener('click', () => {
@@ -199,14 +208,10 @@ function setupRecall(targets) {
 
 function mathTrialHTML(problemText, showTimer) {
   const timer = showTimer
-    ? `<div class="timer-wrap"><div class="timer-fill" id="t-bar" style="width:100%"></div></div>`
+    ? ``
     : '';
   return `
     <p class="math-problem">${problemText}</p>
-    <p class="math-keys">
-      <span class="key">F</span> FALSE &nbsp;&nbsp;&nbsp;
-      <span class="key">J</span> TRUE
-    </p>
     ${timer}`;
 }
 
@@ -255,13 +260,14 @@ const jsPsych = initJsPsych({
 });
 
 const timeline = [];
+const PROC = { field: 'math_correct', answer: d => `<p class="ep-q">Is this the answer?</p><p class="math-problem">${d.shown_answer}</p>`, buttons: [['TRUE','j'],['FALSE','f']] };
 // --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
 const TASK_NAME    = 'OSpan';
 const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
 const SESSION_DATE = new Date().toISOString().slice(0, 10);
 let   PID          = URL_PID;
 const RAND_ID      = jsPsych.randomization.randomID(6);
-jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE });
+jsPsych.data.addProperties({ task_name: TASK_NAME, session_date: SESSION_DATE, task_version: EP.VERSION });
 const safeName     = x => String(x).replace(/[^A-Za-z0-9_-]/g, '_');
 const getFilename  = () => `${TASK_NAME}_${safeName(PID || 'noID')}_${SESSION_DATE}_${RAND_ID}.csv`;
 
@@ -289,10 +295,9 @@ timeline.push({
   type: jsPsychHtmlKeyboardResponse,
   stimulus: `<div class="instr">
     <h2>Part 1: Math Practice</h2>
-    <p>You will see math problems like: <strong>(3 × 4) + 2 = 14</strong></p>
+    <p>You will see math problems like: <strong>(3 × 4) + 2 = ?</strong></p>
     <p>Decide whether the answer shown is correct or not.</p>
-    <p><span class="key">F</span> = FALSE &nbsp;&nbsp;
-       <span class="key">J</span> = TRUE</p>
+    <p>Solve the problem in your head, then <strong>click the mouse</strong>. A number will appear. Click <strong>TRUE</strong> if it is the right answer or <strong>FALSE</strong> if it is not.</p>
     <p>Try to be as <strong>fast and accurate</strong> as possible.
        You will complete 15 practice problems.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -302,11 +307,11 @@ timeline.push({
 
 for (let i = 0; i < 15; i++) {
   const prob = makeMath();
-  timeline.push({
+  timeline.push(EP.proc({
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: mathTrialHTML(prob.text, false),
     choices:  ['f', 'j'],
-    data:     { trial_type: 'math_practice', correct_key: prob.correct ? 'j' : 'f' },
+    data:     { trial_type: 'math_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown },
     on_finish: function (d) {
       d.math_correct = d.response === d.correct_key;
       lastMathOK   = d.math_correct;
@@ -314,7 +319,7 @@ for (let i = 0; i < 15; i++) {
       if (d.math_correct) practiceCorrect++;
       practiceRTs.push(d.rt);
     }
-  });
+  }, PROC));
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus:       () => mathFeedbackHTML(),
@@ -347,7 +352,7 @@ timeline.push({
     return `<div class="instr">
       <h2>Math Practice Complete</h2>${msg}
       <p>In the main task, each math problem will have a time limit based on
-         your practice speed. A timer bar will show how much time you have.</p>
+         your practice speed.</p>
       <br><p style="color:#888">Press any key to continue.</p>
     </div>`;
   },
@@ -426,9 +431,8 @@ timeline.push({
     <p>Now you will practice both together: solve a math problem,
        then see a letter to remember — then solve another math problem,
        see another letter, and so on.</p>
-    <p>After all items in a set, recall the letters <strong>in order</strong>.</p>
-    <p>The math problems have a <strong>time limit</strong> — answer quickly!
-       The timer bar shows how much time remains.</p>
+    <p>After all items in a set, recall the letters <strong>in order</strong>. You will then see how you did on that set.</p>
+    <p>The math problems have a <strong>time limit</strong> — answer quickly!</p>
     <p><strong>Important:</strong> you must get at least 85% of math problems
        correct. Don't sacrifice accuracy for speed.</p>
     <br><p style="color:#888">Press any key to begin.</p>
@@ -443,27 +447,20 @@ timeline.push({
   for (let i = 0; i < sz; i++) {
     const prob = makeMath();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: mathTrialHTML(prob.text, true),
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = mathTimeLimit; },
       on_load:  startTimerBar,
-      data:     { trial_type: 'math_combined_practice', correct_key: prob.correct ? 'j' : 'f' },
+      data:     { trial_type: 'math_combined_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown },
       on_finish: function (d) {
         lastMathSlow = d.response === null;
         lastMathOK   = !lastMathSlow && d.response === d.correct_key;
         d.math_correct = lastMathOK;
         d.timed_out    = lastMathSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => mathFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
@@ -487,6 +484,7 @@ timeline.push({
     on_load:  () => setupRecall(tLetters),
     data:     { trial_type: 'recall_combined_practice', target: tLetters.join('') }
   });
+  timeline.push(EP.setFeedback('Math'));
 });
 
 
@@ -516,10 +514,9 @@ MAIN_SIZES.forEach((sz, setIdx) => {
   for (let i = 0; i < sz; i++) {
     const prob = makeMath();
 
-    timeline.push({
+    timeline.push(EP.proc({
       type:     jsPsychHtmlKeyboardResponse,
       stimulus: `
-        <p class="progress-note">Set ${setIdx + 1} of 15 &nbsp;·&nbsp; item ${i + 1} of ${sz}</p>
         ${mathTrialHTML(prob.text, true)}`,
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = mathTimeLimit; },
@@ -527,6 +524,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       data: {
         task:          'math_main',
         correct_key:   prob.correct ? 'j' : 'f',
+        shown_answer:  prob.shown,
         set_index:     setIdx,
         item_index:    i,
         set_size:      sz,
@@ -538,14 +536,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
         d.math_correct = lastMathOK;
         d.timed_out    = lastMathSlow;
       }
-    });
-
-    timeline.push({
-      type:           jsPsychHtmlKeyboardResponse,
-      stimulus:       () => mathFeedbackHTML(),
-      choices:        'NO_KEYS',
-      trial_duration: FEEDBACK_MS
-    });
+    }, PROC));
 
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -576,6 +567,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
     on_load: () => setupRecall(tLetters),
     data:    { task: 'recall_main', target: tLetters.join(''), set_size: sz, set_index: setIdx }
   });
+  timeline.push(EP.setFeedback('Math'));
 });
 
 
