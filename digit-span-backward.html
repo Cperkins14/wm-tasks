@@ -315,7 +315,7 @@ timeline.push({
       stimulus:       `<div class="digit-box">${d}</div>`,
       choices:        'NO_KEYS',
       trial_duration: DIGIT_MS,
-      data:           { trial_type: 'digit_display_practice' }
+      data:           { phase: 'digit_display_practice' }
     });
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -331,14 +331,14 @@ timeline.push({
     stimulus: numpadHTML(len),
     choices: 'NO_KEYS',
     on_load: () => setupNumpad(seqCopy, len),
-    data:    { trial_type: 'recall_practice', span_length: len, target_forward: seqCopy.join('') }
+    data:    { phase: 'recall_practice', span_length: len, target_forward: seqCopy.join('') }
   });
 
   // Feedback
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus: function () {
-      const last    = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      const last    = jsPsych.data.get().filter({ phase: 'recall_practice' }).last(1).values()[0];
       if (!last) return '';
       const correct = [...seqCopy].reverse().join(' ');
       return last.all_correct
@@ -405,7 +405,7 @@ SPAN_LENGTHS.forEach((len, trialIdx) => {
       stimulus:       `<div class="digit-box">${d}</div>`,
       choices:        'NO_KEYS',
       trial_duration: DIGIT_MS,
-      data:           { trial_type: 'digit_display', span_length: len }
+      data:           { phase: 'digit_display', span_length: len }
     });
     // Brief blank between digits
     timeline.push({

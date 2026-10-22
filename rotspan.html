@@ -264,7 +264,7 @@ function setupLetterRecall(items) {
       partial_correct:  partial,
       absolute_correct: absolute,
       set_size:         items.length,
-      trial_type:       'recall'
+      phase:       'recall'
     });
   });
 }
@@ -353,7 +353,7 @@ for (let i = 0; i < 12; i++) {
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: rotTrialHTML(prob, false),
     choices:  ['f', 'j'],
-    data:     { trial_type: 'rot_practice', correct_key: prob.isRight ? 'j' : 'f', is_right: prob.isRight },
+    data:     { phase: 'rot_practice', correct_key: prob.isRight ? 'j' : 'f', is_right: prob.isRight },
     on_finish: function (d) {
       d.rot_correct = d.response === d.correct_key;
       lastRotOK   = d.rot_correct;
@@ -377,7 +377,7 @@ timeline.push({
     const n    = practiceRTs.length;
     const mean = practiceRTs.reduce((a, b) => a + b, 0) / n;
     const sd   = Math.sqrt(practiceRTs.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n);
-    rotTimeLimit = Math.round(Math.max(2500, Math.min(12000, mean + 2.5 * sd)));
+    rotTimeLimit = Math.round(Math.max(1000, mean + 2.5 * sd));
   }
 });
 
@@ -433,7 +433,7 @@ for (let s = 0; s < 3; s++) {
       stimulus:       memLetterHTML(item.letter, item.mirrored),
       choices:        'NO_KEYS',
       trial_duration: LETTER_MS,
-      data:           { trial_type: 'letter_practice' }
+      data:           { phase: 'letter_practice' }
     });
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -448,13 +448,13 @@ for (let s = 0; s < 3; s++) {
     stimulus: recallHTML(tItems),
     choices: 'NO_KEYS',
     on_load: () => setupLetterRecall(tItems),
-    data:    { trial_type: 'recall_practice', set_size: 2 }
+    data:    { phase: 'recall_practice', set_size: 2 }
   });
 
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus: function () {
-      const last = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      const last = jsPsych.data.get().filter({ phase: 'recall_practice' }).last(1).values()[0];
       if (!last) return '';
       return last.partial_correct === 2
         ? `<p class="fb-correct">Both correct!</p>`
@@ -485,7 +485,7 @@ timeline.push({
   choices: 'ALL_KEYS'
 });
 
-[2, 2, 3].forEach(sz => {
+[2, 2, 2].forEach(sz => {
   const items  = pickMemItems(sz);
   const tItems = items.map(it => ({ ...it }));
 
@@ -498,7 +498,7 @@ timeline.push({
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = rotTimeLimit; },
       on_load:  startTimerBar,
-      data:     { trial_type: 'rot_combined_practice', correct_key: prob.isRight ? 'j' : 'f' },
+      data:     { phase: 'rot_combined_practice', correct_key: prob.isRight ? 'j' : 'f' },
       on_finish: function (d) {
         lastRotSlow   = d.response === null;
         lastRotOK     = !lastRotSlow && d.response === d.correct_key;
@@ -512,7 +512,7 @@ timeline.push({
       stimulus:       memLetterHTML(items[i].letter, items[i].mirrored),
       choices:        'NO_KEYS',
       trial_duration: LETTER_MS,
-      data:           { trial_type: 'letter_combined_practice' }
+      data:           { phase: 'letter_combined_practice' }
     });
     timeline.push({
       type:           jsPsychHtmlKeyboardResponse,
@@ -527,9 +527,9 @@ timeline.push({
     stimulus: recallHTML(tItems),
     choices: 'NO_KEYS',
     on_load: () => setupLetterRecall(tItems),
-    data:    { trial_type: 'recall_combined_practice' }
+    data:    { phase: 'recall_combined_practice' }
   });
-  timeline.push(EP.setFeedback('Rotation'));
+  timeline.push(EP.setFeedback('Rotation', 'letters'));
 });
 
 
@@ -619,7 +619,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
       set_index:  setIdx
     }
   });
-  timeline.push(EP.setFeedback('Rotation'));
+  timeline.push(EP.setFeedback('Rotation', 'letters'));
 });
 
 

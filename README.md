@@ -14,4 +14,4 @@ Saved files are named `Task_ID_date_random.csv`, e.g. `OSpan_RA01_2026-10-21_k8q
 
 No participant data lives in this repo. It's all in Google Drive (older pilot data is on OSF).
 
-The four complex span tasks use mouse clicks to match the E-Prime versions (`eprime.js`). Files saved from Oct 22, 2026 on have `task_version = mouse-v2`; earlier pilot files used the F/J keys and have no `task_version`.
+The four complex span tasks use mouse clicks to match the E-Prime versions (`eprime.js`). Files saved from Oct 22, 2026 on have `task_version = mouse-v3` (Oct 22 afternoon: Inquisit stimuli and timing; `mouse-v2` was the first mouse build that morning); earlier pilot files used the F/J keys and have no `task_version`.

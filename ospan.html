@@ -78,8 +78,8 @@
 // --- CONFIG ---
 const PIPE_ID      = 'y2DwCTqgFGGu';
 const LETTERS      = ['F','H','J','K','L','N','P','Q','R','S','T','Y'];
-const LETTER_MS    = 800;   // letter display duration
-const FIXATION_MS  = 250;   // blank between items
+const LETTER_MS    = 1000;  // letter display duration (Inquisit/E-Prime: 1000)
+const FIXATION_MS  = 200;   // blank between items
 const FEEDBACK_MS  = 600;   // math feedback duration
 
 // Standard OSpan: 3 trials × set sizes 3–7
@@ -113,30 +113,32 @@ function pickLetters(n) {
   return shuffle(LETTERS).slice(0, n);
 }
 
+// Same problem generator as the automated OSPAN (Unsworth et al., 2005; Inquisit version):
+// operand 1 from a fixed list, then +/- a digit 1-9, answer >= 0.
+// Half the proposed answers are wrong: true answer + a random nonzero integer from -9 to 9 (kept >= 0).
+const MATH_OPT01 = ["(1/1)","(2/1)","(2/2)","(3/1)","(3/3)","(4/1)","(4/2)","(4/4)","(5/1)","(5/5)","(6/1)","(6/2)","(6/3)","(6/6)","(7/1)","(7/7)","(8/1)","(8/2)","(8/4)","(8/8)","(9/1)","(9/3)","(9/9)","(1*2)","(1*3)","(2*2)","(1*4)","(1*5)","(3*2)","(2*3)","(1*6)","(1*7)","(4*2)","(2*4)","(1*8)","(3*3)","(1*9)","(5*2)","(2*5)","(6*2)","(4*3)","(3*4)","(2*6)","(7*2)","(2*7)","(5*3)","(3*5)","(8*2)"];
+const PRAC_MATH = [["(1*2) + 1",3,1],["(1/1) - 1",2,0],["(7*3) - 3",18,1],["(4*3) + 4",16,1],["(3/3) + 2",1,0],["(2*6) - 4",6,0],["(8*9) - 8",64,1],["(4*5) - 5",11,0],["(4*2) + 6",14,1],["(4/4) + 7",12,0],["(8*2) - 8",2,0],["(2*9) - 9",9,1],["(8/2) + 9",7,0],["(3*8) - 1",23,1],["(6/3) + 1",3,1]];
+const evalOp = s => { const m = s.match(/\((\d)([*/])(\d)\)/); return m[2] === '*' ? m[1] * m[3] : m[1] / m[3]; };
+let mathTF = [];
 function makeMath() {
-  const ops = ['+', '-', '*'];
-  let a, b, c, mid, ans, op1, op2, tries = 0;
+  if (!mathTF.length) mathTF = shuffle(Array(10).fill(true).concat(Array(10).fill(false)));
+  const correct = mathTF.pop();
+  let opt1, sign, opt2, ans;
   do {
-    op1 = ops[Math.floor(Math.random() * 3)];
-    op2 = ops[Math.floor(Math.random() * 3)];
-    a   = Math.floor(Math.random() * 9) + 1;
-    b   = Math.floor(Math.random() * 9) + 1;
-    c   = Math.floor(Math.random() * 9) + 1;
-    mid = op1 === '+' ? a+b : op1 === '-' ? a-b : a*b;
-    ans = op2 === '+' ? mid+c : op2 === '-' ? mid-c : mid*c;
-    tries++;
-  } while ((ans < 0 || ans > 99) && tries < 100);
-
-  const correct = Math.random() > 0.5;
+    opt1 = MATH_OPT01[Math.floor(Math.random() * MATH_OPT01.length)];
+    sign = Math.random() < 0.5 ? '+' : '-';
+    opt2 = Math.floor(Math.random() * 9) + 1;
+    ans  = sign === '+' ? evalOp(opt1) + opt2 : evalOp(opt1) - opt2;
+  } while (ans < 0);
   let shown = ans;
   if (!correct) {
-    let off = Math.floor(Math.random() * 2) + 1;
-    shown = ans + (Math.random() > 0.5 ? off : -off);
-    if (shown === ans) shown = ans + 1;
+    do { shown = ans + (Math.floor(Math.random() * 19) - 9); } while (shown < 0 || shown === ans);
   }
-  const s1 = op1 === '*' ? '×' : op1;
-  const s2 = op2 === '*' ? '×' : op2;
-  return { text: `(${a} ${s1} ${b}) ${s2} ${c} = ?`, shown, correct };
+  return { text: `${opt1} ${sign} ${opt2} = ?`, shown, correct };
+}
+function pracMath(i) {
+  const [p, shown, ok] = PRAC_MATH[i];
+  return { text: `${p} = ?`, shown, correct: !!ok };
 }
 
 function recallHTML(n) {
@@ -260,7 +262,7 @@ const jsPsych = initJsPsych({
 });
 
 const timeline = [];
-const PROC = { field: 'math_correct', answer: d => `<p class="ep-q">Is this the answer?</p><p class="math-problem">${d.shown_answer}</p>`, buttons: [['TRUE','j'],['FALSE','f']] };
+const PROC = { field: 'math_correct', answer: d => `<p class="math-problem">${d.shown_answer}</p>`, buttons: [['TRUE','j'],['FALSE','f']] };
 // --- Lab setup: task label, participant ID from link (?pid=XX), readable filename ---
 const TASK_NAME    = 'OSpan';
 const URL_PID      = (new URLSearchParams(window.location.search).get('pid') || '').trim();
@@ -295,7 +297,7 @@ timeline.push({
   type: jsPsychHtmlKeyboardResponse,
   stimulus: `<div class="instr">
     <h2>Part 1: Math Practice</h2>
-    <p>You will see math problems like: <strong>(3 × 4) + 2 = ?</strong></p>
+    <p>You will see math problems like: <strong>(2*3) + 1 = ?</strong></p>
     <p>Decide whether the answer shown is correct or not.</p>
     <p>Solve the problem in your head, then <strong>click the mouse</strong>. A number will appear. Click <strong>TRUE</strong> if it is the right answer or <strong>FALSE</strong> if it is not.</p>
     <p>Try to be as <strong>fast and accurate</strong> as possible.
@@ -306,12 +308,12 @@ timeline.push({
 });
 
 for (let i = 0; i < 15; i++) {
-  const prob = makeMath();
+  const prob = pracMath(i);
   timeline.push(EP.proc({
     type:     jsPsychHtmlKeyboardResponse,
     stimulus: mathTrialHTML(prob.text, false),
     choices:  ['f', 'j'],
-    data:     { trial_type: 'math_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown },
+    data:     { phase: 'math_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown, problem: prob.text },
     on_finish: function (d) {
       d.math_correct = d.response === d.correct_key;
       lastMathOK   = d.math_correct;
@@ -335,7 +337,7 @@ timeline.push({
     const n    = practiceRTs.length;
     const mean = practiceRTs.reduce((a, b) => a + b, 0) / n;
     const sd   = Math.sqrt(practiceRTs.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n);
-    mathTimeLimit = Math.round(Math.max(2500, Math.min(10000, mean + 2.5 * sd)));
+    mathTimeLimit = Math.round(Math.max(1000, mean + 2.5 * sd));
   }
 });
 
@@ -370,14 +372,14 @@ timeline.push({
     <p>A letter will appear briefly on screen. Try to remember it.</p>
     <p>After all the letters in a set, a grid will appear.
        Click the letters you saw <strong>in the order they appeared</strong>.</p>
-    <p>You will practice with 3 sets of 3 letters each.</p>
+    <p>You will practice with 4 sets of 2 or 3 letters.</p>
     <br><p style="color:#888">Press any key to begin.</p>
   </div>`,
   choices: 'ALL_KEYS'
 });
 
-for (let s = 0; s < 3; s++) {
-  const letters  = pickLetters(3);
+for (const PSZ of [2, 2, 3, 3]) {
+  const letters  = pickLetters(PSZ);
   const tLetters = [...letters];
 
   letters.forEach(l => {
@@ -386,7 +388,7 @@ for (let s = 0; s < 3; s++) {
       stimulus: `<div class="letter-box">${l}</div>`,
       choices: 'NO_KEYS',
       trial_duration: LETTER_MS,
-      data: { trial_type: 'letter_practice' }
+      data: { phase: 'letter_practice' }
     });
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
@@ -398,22 +400,18 @@ for (let s = 0; s < 3; s++) {
 
   timeline.push({
     type:     jsPsychHtmlKeyboardResponse,
-    stimulus: recallHTML(3),
+    stimulus: recallHTML(PSZ),
     choices:  'NO_KEYS',
     on_load:  () => setupRecall(tLetters),
-    data:     { trial_type: 'recall_practice', target: tLetters.join('') }
+    data:     { phase: 'recall_practice', target: tLetters.join('') }
   });
 
   timeline.push({
     type:           jsPsychHtmlKeyboardResponse,
     stimulus: function () {
-      const last = jsPsych.data.get().filter({ trial_type: 'recall_practice' }).last(1).values()[0];
+      const last = jsPsych.data.get().filter({ phase: 'recall_practice' }).last(1).values()[0];
       if (!last) return '';
-      return last.partial_correct === 3
-        ? `<p class="fb-correct">All 3 correct!</p>`
-        : `<p style="font-size:1.2em;text-align:center;color:#555">
-             You recalled ${last.partial_correct}/3 correctly.
-             <br>Target order: <strong>${last.target}</strong></p>`;
+      return `<p style="font-size:1.3em;text-align:center;">You recalled ${last.partial_correct} out of ${last.set_size} letters correctly.</p>`;
     },
     choices:        'NO_KEYS',
     trial_duration: 2200
@@ -440,7 +438,7 @@ timeline.push({
   choices: 'ALL_KEYS'
 });
 
-[2, 2, 3].forEach(sz => {
+[2, 2, 2].forEach(sz => {
   const letters  = pickLetters(sz);
   const tLetters = [...letters];
 
@@ -453,7 +451,7 @@ timeline.push({
       choices:  ['f', 'j'],
       on_start: trial => { trial.trial_duration = mathTimeLimit; },
       on_load:  startTimerBar,
-      data:     { trial_type: 'math_combined_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown },
+      data:     { phase: 'math_combined_practice', correct_key: prob.correct ? 'j' : 'f', shown_answer: prob.shown, problem: prob.text },
       on_finish: function (d) {
         lastMathSlow = d.response === null;
         lastMathOK   = !lastMathSlow && d.response === d.correct_key;
@@ -467,7 +465,7 @@ timeline.push({
       stimulus: `<div class="letter-box">${letters[i]}</div>`,
       choices: 'NO_KEYS',
       trial_duration: LETTER_MS,
-      data: { trial_type: 'letter_combined_practice' }
+      data: { phase: 'letter_combined_practice' }
     });
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
@@ -482,9 +480,9 @@ timeline.push({
     stimulus: recallHTML(sz),
     choices:  'NO_KEYS',
     on_load:  () => setupRecall(tLetters),
-    data:     { trial_type: 'recall_combined_practice', target: tLetters.join('') }
+    data:     { phase: 'recall_combined_practice', target: tLetters.join('') }
   });
-  timeline.push(EP.setFeedback('Math'));
+  timeline.push(EP.setFeedback('Math', 'letters'));
 });
 
 
@@ -525,6 +523,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
         task:          'math_main',
         correct_key:   prob.correct ? 'j' : 'f',
         shown_answer:  prob.shown,
+        problem:       prob.text,
         set_index:     setIdx,
         item_index:    i,
         set_size:      sz,
@@ -567,7 +566,7 @@ MAIN_SIZES.forEach((sz, setIdx) => {
     on_load: () => setupRecall(tLetters),
     data:    { task: 'recall_main', target: tLetters.join(''), set_size: sz, set_index: setIdx }
   });
-  timeline.push(EP.setFeedback('Math'));
+  timeline.push(EP.setFeedback('Math', 'letters'));
 });
 
 
