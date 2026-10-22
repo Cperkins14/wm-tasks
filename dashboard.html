@@ -261,6 +261,8 @@ function scoreFile(name, text) {
   const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
   const rows = parsed.data, cols = parsed.meta.fields || [];
   const task = detectTask(rows, cols);
+  const hasTask = cols.includes('task');
+  const has = v => v !== undefined && v !== null && v !== '' && v !== 'null';
   if (!task) return { error: 'not a WM task file' };
   const pid = (rows.find(r => r.participant_id)?.participant_id || '').trim() || '(no ID)';
   const date = rows.find(r => r.session_date)?.session_date || (name.match(/\d{4}-\d{2}-\d{2}/) || [''])[0];
@@ -268,7 +270,8 @@ function scoreFile(name, text) {
   const s = { file: name, task, pid, date, minutes: lastT ? round(lastT / 60000, 1) : null, flags: [] };
 
   if (task === 'DigitSpan') {
-    let rec = rows.filter(r => r.task === 'recall_main' && r.span_length !== '' && r.span_length != null);
+    // files without a 'task' column (older OSF data): every recall trial has all_correct; practice comes first and is trimmed below
+    let rec = rows.filter(r => (hasTask ? r.task === 'recall_main' : has(r.all_correct)) && has(r.span_length));
     if (rec.length > DIGIT_MAIN_TRIALS) rec = rec.slice(rec.length - DIGIT_MAIN_TRIALS);   // older files: practice mixed in first
     if (!rec.length) return { error: 'no main trials (incomplete?)' };
     const byLen = {};
@@ -281,7 +284,8 @@ function scoreFile(name, text) {
     s.by_size = Object.keys(byLen).map(Number).sort((a, b) => a - b).map(L => ({ size: L, acc: round(100 * mean(byLen[L].map(Number))) }));
     if (rec.length < DIGIT_MAIN_TRIALS) s.flags.push('incomplete');
   } else {
-    const rec = rows.filter(r => r.task === 'recall_main');
+    // files without a 'task' column (older OSF data): main sets are the recall trials that carry a set_index
+    const rec = rows.filter(r => hasTask ? r.task === 'recall_main' : (has(r.partial_correct) && has(r.set_index)));
     if (!rec.length) return { error: 'no main sets (incomplete?)' };
     let partial = 0, maxp = 0, perfect = 0, absolute = 0; const bySize = {};
     rec.forEach(r => {
@@ -290,7 +294,7 @@ function scoreFile(name, text) {
       (bySize[sz] ||= []).push(p / sz);
     });
     const [ptask, pcol] = PROC[task];
-    const proc = rows.filter(r => r.task === ptask);
+    const proc = rows.filter(r => hasTask ? r.task === ptask : (has(r[pcol]) && has(r.set_index)));
     s.partial = partial; s.partial_max = maxp; s.absolute = absolute; s.perfect_sets = perfect; s.n_sets = rec.length;
     s.proc_acc = proc.length ? round(100 * proc.filter(r => truthy(r[pcol])).length / proc.length) : null;
     s.proc_timeouts = proc.filter(r => truthy(r.timed_out)).length;
